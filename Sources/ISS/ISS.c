@@ -4,9 +4,9 @@
 #include <ApplicationServices/ApplicationServices.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreGraphics/CGEventTypes.h>
-#include <assert.h>
 #include <dlfcn.h>
 #include <float.h>
+#include <math.h>
 #include <mach/mach_time.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -76,6 +76,13 @@ static unsigned int syntheticEventsToPassThrough = 0;
 // Gesture speed state
 static double gestureSpeed = 2000.0;
 
+// At full Instant velocity, landing on an edge space triggers the Dock's
+// rubber-band handling, which can leave canJoinAllSpaces overlay windows
+// (e.g. FaceTime PiP) detached until the next transition. Use a lower
+// velocity for switches that land on the first or last space.
+// (macOS 27+ augmented gestures ignore velocity settings entirely.)
+static double edgeGestureSpeed = 80.0;
+
 static ISSSwitchCallback switchCallback = NULL;
 
 // Predictions dictionary: DisplayID (CFStringRef) -> Index (CFNumberRef)
@@ -131,8 +138,16 @@ static bool extract_space_info_from_display(CFDictionaryRef displayDict,
                                             ISSSpaceInfo *outInfo);
 static bool load_space_info_for_display(ISSSpaceInfo *info, bool useCursorDisplay);
 static bool iss_perform_switch_gesture(ISSDirection direction, double velocity);
-static bool iss_switch_with_info(const ISSSpaceInfo *info, ISSDirection direction);
-static bool iss_should_block_switch(const ISSSpaceInfo *info, ISSDirection direction);
+static bool iss_switch_with_info(const ISSSpaceInfo *info, unsigned int current, ISSDirection direction, double velocity);
+static bool iss_should_block_switch(const ISSSpaceInfo *info, unsigned int current, ISSDirection direction);
+
+static double velocity_for_target(const ISSSpaceInfo *info, unsigned int target) {
+    if (target == 0 || target + 1 == info->spaceCount) {
+        // Never faster than the user's chosen speed
+        return fmin(gestureSpeed, edgeGestureSpeed);
+    }
+    return gestureSpeed;
+}
 
 static ISSDirection iss_direction_from_gesture_value(double value) {
     // Map the intercepted gesture value to the app's logical direction.
@@ -152,7 +167,7 @@ static void swipe_override_switch(ISSDirection dir) {
     unsigned int current = get_prediction(info.displayID, &predicted) ? predicted : info.currentIndex;
     unsigned int target = dir == ISSDirectionLeft ? current - 1 : current + 1;
 
-    if (iss_switch_with_info(&info, dir)) {
+    if (iss_switch_with_info(&info, current, dir, velocity_for_target(&info, target))) {
         set_prediction(info.displayID, target);
         if (switchCallback) { switchCallback(target); }
     }
@@ -454,16 +469,15 @@ static bool load_space_info_for_display(ISSSpaceInfo *info, bool useCursorDispla
     return success;
 }
 
-static bool iss_should_block_switch(const ISSSpaceInfo *info, ISSDirection direction) {
+// Callers pass the same current index they computed the target from; reading
+// the prediction again here could see it expire and let the target wrap.
+static bool iss_should_block_switch(const ISSSpaceInfo *info, unsigned int current, ISSDirection direction) {
     if (!info) {
         return false;
     }
     if (info->spaceCount == 0) {
         return true;
     }
-
-    unsigned int predicted;
-    unsigned int current = get_prediction(info->displayID, &predicted) ? predicted : info->currentIndex;
 
     if (direction == ISSDirectionLeft) {
         return current == 0;
@@ -473,7 +487,9 @@ static bool iss_should_block_switch(const ISSSpaceInfo *info, ISSDirection direc
 }
 
 bool iss_can_move(ISSSpaceInfo info, ISSDirection direction) {
-    return !iss_should_block_switch(&info, direction);
+    unsigned int predicted;
+    unsigned int current = get_prediction(info.displayID, &predicted) ? predicted : info.currentIndex;
+    return !iss_should_block_switch(&info, current, direction);
 }
 
 /** @brief Minimal signed swipe progress for every gesture phase.
@@ -692,8 +708,11 @@ bool iss_init(void) {
         predictionsDict = CFDictionaryCreateMutable(NULL, 0, &kCFCopyStringDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     }
 
-    // Only gesture/dock-control events; the callback never reads key events
-    CGEventMask mask = (1ULL << kCGSEventGesture) | (1ULL << kCGSEventDockControl);
+    // The key-event bits look vestigial (the callback never reads key events),
+    // but removing them stops gesture events from being delivered to the tap,
+    // so they stay. Verified empirically on macOS 26.
+    CGEventMask mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp)
+        | (1ULL << kCGSEventGesture) | (1ULL << kCGSEventDockControl);
     globalTap = CGEventTapCreate(
         kCGSessionEventTap,
         kCGHeadInsertEventTap,
@@ -765,11 +784,11 @@ bool iss_get_menubar_space_info(ISSSpaceInfo *info) {
     return load_space_info_for_display(info, false);
 }
 
-static bool iss_switch_with_info(const ISSSpaceInfo *info, ISSDirection direction) {
-    if (iss_should_block_switch(info, direction)) {
+static bool iss_switch_with_info(const ISSSpaceInfo *info, unsigned int current, ISSDirection direction, double velocity) {
+    if (iss_should_block_switch(info, current, direction)) {
         return false;
     }
-    if (!iss_perform_switch_gesture(direction, gestureSpeed)) {
+    if (!iss_perform_switch_gesture(direction, velocity)) {
         return false;
     }
 
@@ -783,7 +802,7 @@ bool iss_switch(ISSDirection direction) {
         unsigned int current = get_prediction(info.displayID, &predicted) ? predicted : info.currentIndex;
         unsigned int target = direction == ISSDirectionLeft ? current - 1 : current + 1;
 
-        if (!iss_switch_with_info(&info, direction)) {
+        if (!iss_switch_with_info(&info, current, direction, velocity_for_target(&info, target))) {
             return false;
         }
         set_prediction(info.displayID, target);
@@ -792,43 +811,6 @@ bool iss_switch(ISSDirection direction) {
     }
 
     return iss_perform_switch_gesture(direction, gestureSpeed);
-}
-
-bool iss_switch_to_index(unsigned int targetIndex) {
-    ISSSpaceInfo info;
-    if (!iss_get_space_info(&info)) {
-        return false;
-    }
-
-    assert(info.spaceCount > 0);
-
-    bool outOfBounds = targetIndex >= info.spaceCount;
-    if (outOfBounds) {
-        targetIndex = info.spaceCount - 1;
-    }
-
-    unsigned int predicted;
-    unsigned int currentIndex = get_prediction(info.displayID, &predicted) ? predicted : info.currentIndex;
-
-    if (currentIndex == targetIndex) {
-        return !outOfBounds;
-    }
-
-    ISSDirection direction = currentIndex < targetIndex ? ISSDirectionRight : ISSDirectionLeft;
-    unsigned int steps = direction == ISSDirectionRight ? (targetIndex - currentIndex) : (currentIndex - targetIndex);
-
-    // Multiply velocity by number of steps for faster multi-space switching
-    double velocity = gestureSpeed * steps;
-
-    for (unsigned int i = 0; i < steps; i++) {
-        if (!iss_perform_switch_gesture(direction, velocity)) {
-            return false;
-        }
-    }
-
-    set_prediction(info.displayID, targetIndex);
-    if (switchCallback) { switchCallback(targetIndex); }
-    return !outOfBounds;
 }
 
 void iss_set_swipe_override(bool enabled) {
@@ -841,6 +823,10 @@ void iss_set_swipe_override(bool enabled) {
 
 void iss_set_gesture_speed(double speed) {
     gestureSpeed = speed;
+}
+
+void iss_set_edge_gesture_speed(double speed) {
+    edgeGestureSpeed = speed;
 }
 
 void iss_reset_predictions(void) {

@@ -108,7 +108,7 @@ final class GeneralSettingsViewController: NSViewController {
     let showOSD = defaults.bool(forKey: "showOSD")
     showOSDCheckbox.state = showOSD ? .on : .off
 
-    let durationMs = defaults.object(forKey: "osdDurationMs") as? Int ?? 200
+    let durationMs = defaults.object(forKey: "osdDurationMs") as? Int ?? 500
     if let index = durationPresets.firstIndex(of: durationMs) {
       osdDurationPopup.selectItem(at: index)
     } else {

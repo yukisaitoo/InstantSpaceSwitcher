@@ -43,13 +43,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       iss_set_gesture_speed(gestureSpeed)
     }
 
+    // No UI; tune with: defaults write com.interversehq.InstantSpaceSwitcher edgeGestureSpeed -float 400
+    let edgeGestureSpeed = UserDefaults.standard.double(forKey: "edgeGestureSpeed")
+    if edgeGestureSpeed > 0 {
+      iss_set_edge_gesture_speed(edgeGestureSpeed)
+    }
+
     if UserDefaults.standard.object(forKey: "overlayDetectionEnabled") as? Bool ?? true {
       iss_set_overlay_detection_enabled(true)
     }
 
     iss_set_switch_callback { newSpaceIndex in
       DispatchQueue.main.async {
-        OSDWindow.shared.show(message: "\(newSpaceIndex + 1)")
+        OSDWindow.shared.show(message: "\(Int(newSpaceIndex) + 1)")
       }
     }
 
@@ -299,15 +305,6 @@ extension AppDelegate: MenuBarControllerDelegate {
 
   func menuBarControllerDidRequestPreferences(_ controller: MenuBarController) {
     preferencesWindowController.present()
-  }
-
-  func menuBarController(
-    _ controller: MenuBarController, didRequestSwitchToSpaceAtIndex index: UInt32
-  ) {
-    if !iss_switch_to_index(index) {
-      NSSound.beep()
-    }
-    controller.scheduleRefresh(after: 0.25)
   }
 
   func menuBarControllerDidRequestRefresh(_ controller: MenuBarController) {

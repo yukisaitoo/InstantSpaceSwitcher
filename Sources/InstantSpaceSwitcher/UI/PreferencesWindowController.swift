@@ -41,7 +41,7 @@ final class PreferencesWindowController: NSWindowController {
     let alert = NSAlert()
     alert.messageText = "Accessibility Permission Required"
     alert.informativeText =
-      "\(Constants.appName) needs Accessibility permissions to record keyboard shortcuts and switch spaces.\n\nPlease enable it in System Settings > Privacy & Security > Accessibility."
+      "\(Constants.appName) needs Accessibility permissions to record keyboard shortcuts and switch spaces.\n\nPlease enable it in System Settings > Privacy & Security > Accessibility.\n\nIf \(Constants.appName) already appears in that list but isn't working (common after updating the app), remove it with the − button, add it again, then relaunch \(Constants.appName)."
     alert.alertStyle = .warning
     alert.addButton(withTitle: "Open System Settings")
     alert.addButton(withTitle: "Cancel")

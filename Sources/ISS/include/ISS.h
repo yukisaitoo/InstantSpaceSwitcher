@@ -57,13 +57,6 @@ bool iss_get_menubar_space_info(ISSSpaceInfo *info);
 bool iss_can_move(ISSSpaceInfo info, ISSDirection direction);
 
 /**
- * @brief Attempts to switch directly to the provided space index.
- * @param targetIndex Zero-based index for the desired space.
- * @return true if the request succeeded (already on target or switches posted)
- */
-bool iss_switch_to_index(unsigned int targetIndex);
-
-/**
  * @brief Enables or disables interception of trackpad horizontal swipe gestures.
  *
  * When enabled, native horizontal dock-swipe gestures are suppressed and
@@ -117,5 +110,13 @@ void iss_set_overlay_detection_enabled(bool enabled);
  * @param speed The velocity value for the gesture
  */
 void iss_set_gesture_speed(double speed);
+
+/**
+ * @brief Sets the gesture speed used when a switch lands on the first or
+ * last space. Full-speed landings on an edge space can leave floating
+ * overlay windows (e.g. FaceTime PiP) detached until the next transition.
+ * @param speed The velocity value for edge-landing gestures (default 80).
+ */
+void iss_set_edge_gesture_speed(double speed);
 
 #endif /* _ISS_H */

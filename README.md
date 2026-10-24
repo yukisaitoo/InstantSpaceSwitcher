@@ -37,6 +37,15 @@ cd InstantSpaceSwitcher
 open ./build/InstantSpaceSwitcher.app
 ```
 
+If you rebuild often, create a local signing certificate once so macOS keeps the Accessibility grant across rebuilds (ad-hoc builds get a new identity every time and are re-prompted). `build.sh` picks the certificate up automatically from then on:
+
+```sh
+./dist/make-dev-cert.sh   # once
+./dist/build.sh --install # builds, replaces /Applications/InstantSpaceSwitcher.app, relaunches
+```
+
+After the first certificate-signed build, remove the app from Privacy & Security > Accessibility with the "−" button and grant it again once.
+
 ### Troubleshooting / First time startup
 
 1. When opening the app the first time you are likely to run into any of the following warnings:

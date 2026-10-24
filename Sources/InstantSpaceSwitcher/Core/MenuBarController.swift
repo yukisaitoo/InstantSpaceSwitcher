@@ -6,7 +6,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
   private(set) var statusItem: NSStatusItem!
   private var leftMenuItem: NSMenuItem?
   private var rightMenuItem: NSMenuItem?
-  private var spacesMenuItem: NSMenuItem?
   private var cachedSpaceInfo: ISSSpaceInfo?
   private var refreshWorkItem: DispatchWorkItem?
 
@@ -42,18 +41,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     rightItem.image = NSImage(systemSymbolName: "arrow.right", accessibilityDescription: nil)
     menu.addItem(rightItem)
     rightMenuItem = rightItem
-
-    menu.addItem(NSMenuItem.separator())
-
-    let spacesItem = NSMenuItem(title: "Spaces", action: nil, keyEquivalent: "")
-    let spacesSubmenu = NSMenu(title: "Spaces")
-    spacesSubmenu.delegate = self
-    spacesSubmenu.autoenablesItems = false
-    spacesItem.submenu = spacesSubmenu
-    spacesItem.image = NSImage(
-      systemSymbolName: "square.and.line.vertical.and.square", accessibilityDescription: nil)
-    menu.addItem(spacesItem)
-    spacesMenuItem = spacesItem
 
     menu.addItem(NSMenuItem.separator())
 
@@ -106,11 +93,6 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     NSApp.windows.first(where: { $0.title.contains("About") })?.makeKeyAndOrderFront(nil)
   }
 
-  @objc private func switchToSpace(_ sender: NSMenuItem) {
-    let targetIndex = UInt32(sender.tag)
-    delegate?.menuBarController(self, didRequestSwitchToSpaceAtIndex: targetIndex)
-  }
-
   func updateWithSpaceInfo(_ info: ISSSpaceInfo?) {
     cachedSpaceInfo = info
     updateMenuState()
@@ -135,40 +117,17 @@ final class MenuBarController: NSObject, NSMenuDelegate {
       rightMenuItem?.isEnabled = true
     }
 
-    updateSpacesMenuItems()
     updateStatusItemAppearance()
   }
 
-  private func updateSpacesMenuItems() {
-    guard let submenu = spacesMenuItem?.submenu else { return }
-    submenu.removeAllItems()
-
-    guard let info = cachedSpaceInfo, info.spaceCount > 0 else {
-      let item = NSMenuItem(title: "No accessible spaces", action: nil, keyEquivalent: "")
-      item.isEnabled = false
-      submenu.addItem(item)
-      return
-    }
-
-    let count = Int(info.spaceCount)
-    for index in 0..<count {
-      let title = "Space \(index + 1)"
-      let item = NSMenuItem(title: title, action: #selector(switchToSpace(_:)), keyEquivalent: "")
-      item.tag = index
-      item.target = self
-      item.state = index == Int(info.currentIndex) ? .on : .off
-      submenu.addItem(item)
-    }
-  }
-
   func menuNeedsUpdate(_ menu: NSMenu) {
-    if menu === statusItem.menu || menu === spacesMenuItem?.submenu {
+    if menu === statusItem.menu {
       scheduleRefresh(after: 0.05)
     }
   }
 
   func menuWillOpen(_ menu: NSMenu) {
-    if menu === statusItem.menu || menu === spacesMenuItem?.submenu {
+    if menu === statusItem.menu {
       scheduleRefresh(after: 0.05)
     }
   }
@@ -213,7 +172,5 @@ protocol MenuBarControllerDelegate: AnyObject {
   func menuBarControllerDidRequestSwitchLeft(_ controller: MenuBarController)
   func menuBarControllerDidRequestSwitchRight(_ controller: MenuBarController)
   func menuBarControllerDidRequestPreferences(_ controller: MenuBarController)
-  func menuBarController(
-    _ controller: MenuBarController, didRequestSwitchToSpaceAtIndex index: UInt32)
   func menuBarControllerDidRequestRefresh(_ controller: MenuBarController)
 }
