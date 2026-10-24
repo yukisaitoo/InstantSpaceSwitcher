@@ -1,74 +1,77 @@
-# InstantSpaceSwitcher
+# InstantSpaceSwitcher (fork)
 
-Native instant workspace switching on macOS. No more waiting for animations.
+Switch macOS spaces instantly, with no sliding animation.
 
-https://github.com/user-attachments/assets/037422c9-3fb7-41cd-8da7-58d28c4c8eff
+This is a personal fork of [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher) by jurplel. It's trimmed down to left/right switching and has bug fixes I didn't want to wait on.
 
 ## Features
 
-- Does not require disabling SIP
-- Uses native macOS spaces
-- Free
+- **Keyboard shortcuts**: switch one desktop space left or right. Default binding is ⌃⌥⌘← / ⌃⌥⌘→ (I personally remapped to ⌃← / ⌃→).
+- **Trackpad swipe override**: your normal swipe between desktop spaces becomes instant. Speed is adjustable.
+- **On-screen display (optional)**: a space number briefly appears when you switch.
+- **Menu bar icon (optional)**: shows the current desktop space number.
+- **Launch at login (optional)**
+- Doesn't require disabling System Integrity Protection
 
-A simple CLI is provided (`InstantSpaceSwitcher.app/Contents/MacOS/ISSCli --help`)
+## Removed
 
+- Jump-to-desktop-space shortcut (space 1–16)
+- Jump to "last used desktop space".
+- Select desktop space submenu in the menu bar.
+- The command-line tool (`ISSCli`).
 
-## Installation
+## Fixes
 
-### Homebrew
+- The app no longer resets its own Accessibility permission every launch.
+- Floating windows (like FaceTime picture-in-picture) no longer get left behind when you switch to the first desktop space.
+- Swiping no longer gets stuck if macOS briefly pauses the app mid-swipe.
+- Quickly switching at the first or last desktop space no longer jumps the wrong way.
+- Shortcuts must include ⌘, ⌥ or ⌃ (F1–F12 excepted), so a single key can't take over your keyboard.
+- The shortcut recorder cancels on click, recovers if macOS times it out, and beeps when Accessibility permission is missing.
+- Permission alerts now explain what to do when the app shows as allowed but isn't working.
+
+<details>
+<summary>Tuning the first-desktop-space switch speed</summary>
+
+Switching to the first desktop space uses a slightly slower gesture (default 160) so floating windows render properly. 
+
+If they still get left behind, or the switch doesn't feel instant enough, try another value and relaunch the app. It's never faster than the Animation Speed setting. This has no effect on macOS 27+, which ignores gesture speed.
 
 ```sh
-brew install --cask jurplel/tap/instant-space-switcher
+defaults write com.interversehq.InstantSpaceSwitcher edgeGestureSpeed -float 140   # try a value
+defaults delete com.interversehq.InstantSpaceSwitcher edgeGestureSpeed             # back to default
 ```
 
-After installation the app is located inside `/Applications/InstantSpaceSwitcher.app`
+</details>
 
+## Build from source
 
-### Downloads
+> [!IMPORTANT]
+> Don't have the original app installed at the same time. Both use the same name and settings and fight over the same shortcuts and swipes.
 
-Pre-built binaries are available through Github Releases [here](https://github.com/jurplel/InstantSpaceSwitcher/tags).
-
-### Build from source
-
-```sh
-git clone https://github.com/jurplel/InstantSpaceSwitcher
-cd InstantSpaceSwitcher
-./dist/build.sh
-open ./build/InstantSpaceSwitcher.app
-```
-
-If you rebuild often, create a local signing certificate once so macOS keeps the Accessibility grant across rebuilds (ad-hoc builds get a new identity every time and are re-prompted). `build.sh` picks the certificate up automatically from then on:
+Homebrew and the original repo's Releases install the original app, not this fork. Clone this repo, then:
 
 ```sh
-./dist/make-dev-cert.sh   # once
+./dist/make-dev-cert.sh   # once: keeps the Accessibility permission across rebuilds
 ./dist/build.sh --install # builds, replaces /Applications/InstantSpaceSwitcher.app, relaunches
 ```
 
-After the first certificate-signed build, remove the app from Privacy & Security > Accessibility with the "−" button and grant it again once.
+After the first build, open System Settings > Privacy & Security > Accessibility, remove the app with the − button, and grant it again. You only need to do this once.
 
-### Troubleshooting / First time startup
+## Switching between the original and this fork
 
-1. When opening the app the first time you are likely to run into any of the following warnings:
+**Original → this fork**
 
-> "Apple could not verify InstantSpaceSwitcher.app is free of malware"
+1. Quit the original. If you installed it with Homebrew, run `brew uninstall --cask instant-space-switcher`. If not, move it to the Trash.
+2. Build and install this fork.
+3. In System Settings > Privacy & Security > Accessibility, remove InstantSpaceSwitcher with −, relaunch it, and allow it when asked.
 
-> "App is damaged and can’t be opened"
+**This fork → original**
 
-> "App can't be opened because the developer cannot be verified"
+1. Quit the app and move it to the Trash.
+2. Install the original. On first launch it resets its Accessibility permission and asks again, so allow it.
+3. Optional: delete the "InstantSpaceSwitcher Dev" certificate in Keychain Access (login keychain).
 
-Please follow the instructions [here](https://wiki.hacks.guide/wiki/Open_unsigned_applications_on_macOS_Sequoia_and_newer) for instructions on how to allow the app to run[^1].
+## License
 
-2. Afterward you will get a warning that InstantSpaceSwitcher wants to use accessibility features. You have to allow this.
-
-3. Then open the app from the Applications folder and the configuration window should appear.
-
-## Background
-When I first bought a high refresh rate monitor, around ~2018, I could tell that the space switching animation was longer because it had scaled with the refresh rate. Because of this, I eventually stopped using spaces altogether, and have been looking for a solution ever since. 
-
-The workaround in this project is to create a synthetic trackpad gesture with an artificially high velocity. This effectively skips the animation.
-
-If you work at Apple, and your team owns the space switching animation, please fix this long-standing bug[^2] (and let us disable the animation natively, please).
-
-[^1]: This happens because the app is not signed, which requires a costly Apple Developer account
-[^2]: And I know for a fact there is a rdar for this
-
+Same as the original. See [LICENSE](LICENSE).

@@ -5,8 +5,7 @@ let package = Package(
     name: "InstantSpaceSwitcher",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "InstantSpaceSwitcher", targets: ["InstantSpaceSwitcher"]),
-        .executable(name: "ISSCli", targets: ["ISSCli"])
+        .executable(name: "InstantSpaceSwitcher", targets: ["InstantSpaceSwitcher"])
     ],
     targets: [
         .target(
@@ -21,11 +20,6 @@ let package = Package(
         .executableTarget(
             name: "InstantSpaceSwitcher",
             dependencies: ["ISS"]
-        ),
-        .executableTarget(
-            name: "ISSCli",
-            dependencies: ["ISS"],
-            path: "Sources/ISSCli"
         ),
         .testTarget(
             name: "ISSTests",

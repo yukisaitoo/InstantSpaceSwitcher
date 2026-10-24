@@ -111,17 +111,13 @@ lipo -create \
   "${BUILD_DIR}/x86_64/${BUILD_CONFIG}/${PRODUCT_NAME}" \
   -output "${BUILD_PATH}/${PRODUCT_NAME}"
 
-lipo -create \
-  "${BUILD_DIR}/arm64/${BUILD_CONFIG}/ISSCli" \
-  "${BUILD_DIR}/x86_64/${BUILD_CONFIG}/ISSCli" \
-  -output "${BUILD_PATH}/ISSCli"
-
 echo ""
 echo "Bundling..."
+# Start from an empty bundle so files from older builds don't end up in this one.
+rm -rf "${APP_BUNDLE}"
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 mkdir -p "${APP_BUNDLE}/Contents/Resources"
 cp "${BUILD_PATH}/${PRODUCT_NAME}" "${APP_BUNDLE}/Contents/MacOS/"
-cp "${BUILD_PATH}/ISSCli" "${APP_BUNDLE}/Contents/MacOS/"
 cp Info.plist "${APP_BUNDLE}/Contents/"
 
 GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -135,10 +131,8 @@ if [[ "${CODESIGN_IDENTITY}" == "-" ]]; then
 else
   echo "Signing with identity \"${CODESIGN_IDENTITY}\" (${IDENTITY_SOURCE})..."
 fi
-# Sign the nested CLI first, then the bundle. (--deep is deprecated; this is the
-# order Apple recommends.) --timestamp=none: ad-hoc and self-signed identities
-# cannot obtain an Apple timestamp, and asking for one would fail the build.
-codesign --force --sign "${CODESIGN_IDENTITY}" --timestamp=none "${APP_BUNDLE}/Contents/MacOS/ISSCli"
+# --timestamp=none: ad-hoc and self-signed identities cannot obtain an Apple
+# timestamp, and asking for one would fail the build.
 codesign --force --sign "${CODESIGN_IDENTITY}" --timestamp=none "${APP_BUNDLE}"
 
 # macOS (TCC) remembers the Accessibility grant by this "designated requirement".

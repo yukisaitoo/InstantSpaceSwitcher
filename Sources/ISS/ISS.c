@@ -76,12 +76,13 @@ static unsigned int syntheticEventsToPassThrough = 0;
 // Gesture speed state
 static double gestureSpeed = 2000.0;
 
-// At full Instant velocity, landing on an edge space triggers the Dock's
+// At full Instant velocity, landing on the first space triggers the Dock's
 // rubber-band handling, which can leave canJoinAllSpaces overlay windows
 // (e.g. FaceTime PiP) detached until the next transition. Use a lower
-// velocity for switches that land on the first or last space.
+// velocity for switches that land on the first space. The last space has
+// never shown this, so it stays at full speed.
 // (macOS 27+ augmented gestures ignore velocity settings entirely.)
-static double edgeGestureSpeed = 80.0;
+static double edgeGestureSpeed = 160.0;
 
 static ISSSwitchCallback switchCallback = NULL;
 
@@ -141,8 +142,8 @@ static bool iss_perform_switch_gesture(ISSDirection direction, double velocity);
 static bool iss_switch_with_info(const ISSSpaceInfo *info, unsigned int current, ISSDirection direction, double velocity);
 static bool iss_should_block_switch(const ISSSpaceInfo *info, unsigned int current, ISSDirection direction);
 
-static double velocity_for_target(const ISSSpaceInfo *info, unsigned int target) {
-    if (target == 0 || target + 1 == info->spaceCount) {
+static double velocity_for_target(unsigned int target) {
+    if (target == 0) {
         // Never faster than the user's chosen speed
         return fmin(gestureSpeed, edgeGestureSpeed);
     }
@@ -167,7 +168,7 @@ static void swipe_override_switch(ISSDirection dir) {
     unsigned int current = get_prediction(info.displayID, &predicted) ? predicted : info.currentIndex;
     unsigned int target = dir == ISSDirectionLeft ? current - 1 : current + 1;
 
-    if (iss_switch_with_info(&info, current, dir, velocity_for_target(&info, target))) {
+    if (iss_switch_with_info(&info, current, dir, velocity_for_target(target))) {
         set_prediction(info.displayID, target);
         if (switchCallback) { switchCallback(target); }
     }
@@ -805,7 +806,7 @@ bool iss_switch(ISSDirection direction) {
         unsigned int current = get_prediction(info.displayID, &predicted) ? predicted : info.currentIndex;
         unsigned int target = direction == ISSDirectionLeft ? current - 1 : current + 1;
 
-        if (!iss_switch_with_info(&info, current, direction, velocity_for_target(&info, target))) {
+        if (!iss_switch_with_info(&info, current, direction, velocity_for_target(target))) {
             return false;
         }
         set_prediction(info.displayID, target);

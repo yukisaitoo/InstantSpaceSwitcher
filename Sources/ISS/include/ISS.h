@@ -112,10 +112,10 @@ void iss_set_overlay_detection_enabled(bool enabled);
 void iss_set_gesture_speed(double speed);
 
 /**
- * @brief Sets the gesture speed used when a switch lands on the first or
- * last space. Full-speed landings on an edge space can leave floating
- * overlay windows (e.g. FaceTime PiP) detached until the next transition.
- * @param speed The velocity value for edge-landing gestures (default 80).
+ * @brief Sets the gesture speed used when a switch lands on the first
+ * space. Full-speed landings there can leave floating overlay windows
+ * (e.g. FaceTime PiP) detached until the next transition.
+ * @param speed The velocity value for first-space landings (default 160).
  */
 void iss_set_edge_gesture_speed(double speed);
 
