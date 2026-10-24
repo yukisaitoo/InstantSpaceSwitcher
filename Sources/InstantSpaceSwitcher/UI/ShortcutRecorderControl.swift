@@ -51,7 +51,7 @@ final class ShortcutRecorderControl: NSView {
   override var canBecomeKeyView: Bool { true }
 
   private func startEventTapRecording() {
-    GlobalEventTapRecorder.shared.startRecording(
+    let started = GlobalEventTapRecorder.shared.startRecording(
       onKeyPress: { [weak self] event in
         self?.handleKeyEvent(event)
       },
@@ -59,6 +59,13 @@ final class ShortcutRecorderControl: NSView {
         self?.isRecording = false
       }
     )
+    if !started {
+      NSSound.beep()
+      // Deferred: we're inside isRecording's didSet, which hasn't set activeRecorder yet
+      DispatchQueue.main.async { [weak self] in
+        self?.isRecording = false
+      }
+    }
   }
 
   private func stopEventTapRecording() {

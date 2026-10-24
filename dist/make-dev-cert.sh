@@ -12,7 +12,7 @@
 #
 # Usage:
 #   ./dist/make-dev-cert.sh
-#   CODESIGN_IDENTITY="InstantSpaceSwitcher Dev" ./dist/build.sh --install
+#   ./dist/build.sh --install   # picks up the certificate automatically
 #
 # After the FIRST certificate-signed build, remove the app from
 # System Settings > Privacy & Security > Accessibility with the "-" button
@@ -52,7 +52,7 @@ if security find-certificate -c "${CERT_NAME}" "${KEYCHAIN}" >/dev/null 2>&1; th
     echo "  rm /tmp/iss-dev.pem"
   fi
   echo ""
-  echo "Build with: CODESIGN_IDENTITY=\"${CERT_NAME}\" ./dist/build.sh --install"
+  echo "Build with: ./dist/build.sh --install (the certificate is detected automatically)"
   exit 0
 fi
 
@@ -101,6 +101,6 @@ echo ""
 echo "Code-signing identities now available:"
 security find-identity -v -p codesigning
 echo ""
-echo "Next: CODESIGN_IDENTITY=\"${CERT_NAME}\" ./dist/build.sh --install"
+echo "Next: ./dist/build.sh --install (the certificate is detected automatically)"
 echo "Then remove the app from Privacy & Security > Accessibility once (\"-\" button) and grant again."
 echo "The first build will ask whether codesign may use the key; choose \"Always Allow\" for silent builds."

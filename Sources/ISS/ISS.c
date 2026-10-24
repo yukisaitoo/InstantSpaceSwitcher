@@ -183,6 +183,9 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type,
         if (globalTap) CGEventTapEnable(globalTap, true);
         // Anything we posted while disabled never reaches us, so stop waiting for it
         syntheticEventsToPassThrough = 0;
+        // The swipe's ended event may have slipped past while disabled
+        swipeTracking = false;
+        swipeFired = false;
         return event;
     }
 

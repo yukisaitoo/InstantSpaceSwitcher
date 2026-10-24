@@ -11,9 +11,9 @@ final class OSDWindow {
 
   func show(message: String) {
     guard UserDefaults.standard.bool(forKey: "showOSD") else { return }
-    // Mission Control OSD suppression requires overlay detection enabled
-    let overlayDetectionEnabled = UserDefaults.standard.bool(forKey: "overlayDetectionEnabled")
-    if overlayDetectionEnabled && iss_is_mission_control_active() && !UserDefaults.standard.bool(forKey: "showOSDInMissionControl") {
+    // Mission Control OSD suppression requires overlay detection enabled;
+    // iss_is_mission_control_active() returns false when it's off
+    if iss_is_mission_control_active() && !UserDefaults.standard.bool(forKey: "showOSDInMissionControl") {
       return
     }
 
