@@ -99,40 +99,6 @@ final class KeyboardShortcutsViewController: NSViewController {
       .store(in: &cancellables)
     store.$rightHotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
       .store(in: &cancellables)
-    store.$space1Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space2Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space3Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space4Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space5Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space6Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space7Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space8Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space9Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space10Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space11Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space12Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space13Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space14Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space15Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$space16Hotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$spaceLastSpaceHotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
     store.$enabledStates.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
       .store(in: &cancellables)
   }
@@ -232,23 +198,6 @@ extension KeyboardShortcutsViewController: NSTableViewDelegate {
     switch identifier {
     case .left: defaultCombination = .defaultLeft
     case .right: defaultCombination = .defaultRight
-    case .space1: defaultCombination = .defaultForSpace(1)
-    case .space2: defaultCombination = .defaultForSpace(2)
-    case .space3: defaultCombination = .defaultForSpace(3)
-    case .space4: defaultCombination = .defaultForSpace(4)
-    case .space5: defaultCombination = .defaultForSpace(5)
-    case .space6: defaultCombination = .defaultForSpace(6)
-    case .space7: defaultCombination = .defaultForSpace(7)
-    case .space8: defaultCombination = .defaultForSpace(8)
-    case .space9: defaultCombination = .defaultForSpace(9)
-    case .space10: defaultCombination = .defaultForSpace(10)
-    case .space11: defaultCombination = .defaultForSpace(11)
-    case .space12: defaultCombination = .defaultForSpace(12)
-    case .space13: defaultCombination = .defaultForSpace(13)
-    case .space14: defaultCombination = .defaultForSpace(14)
-    case .space15: defaultCombination = .defaultForSpace(15)
-    case .space16: defaultCombination = .defaultForSpace(16)
-    case .lastSpace: defaultCombination = .defaultLastSpace
     }
     store.update(defaultCombination, for: identifier)
   }

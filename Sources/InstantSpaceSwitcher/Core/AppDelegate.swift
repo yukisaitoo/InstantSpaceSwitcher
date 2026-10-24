@@ -9,7 +9,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let hotkeyStore = HotkeyStore.shared
   private lazy var preferencesWindowController = PreferencesWindowController()
   private var currentSpaceIndex: UInt32?
-  private var lastSpaceIndex: UInt32?
   private var cancellables = Set<AnyCancellable>()
   private var spaceChangeObserver: Any?
   private var appActivationObserver: Any?
@@ -83,14 +82,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func ensureAccessibilityPermission() {
     guard !AXIsProcessTrusted() else { return }
-
-    if let bundleId = Bundle.main.bundleIdentifier {
-      let task = Process()
-      task.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-      task.arguments = ["reset", "Accessibility", bundleId]
-      try? task.run()
-      task.waitUntilExit()
-    }
 
     let promptKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
     let options = [promptKey: true] as CFDictionary
@@ -190,57 +181,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     hotkeyStore.$rightHotkey.receive(on: RunLoop.main).sink { [weak self] in
       self?.registerHotkey(for: .right, combination: $0)
     }.store(in: &cancellables)
-    hotkeyStore.$space1Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space1, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space2Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space2, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space3Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space3, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space4Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space4, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space5Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space5, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space6Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space6, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space7Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space7, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space8Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space8, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space9Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space9, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space10Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space10, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space11Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space11, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space12Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space12, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space13Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space13, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space14Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space14, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space15Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space15, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$space16Hotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .space16, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$spaceLastSpaceHotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .lastSpace, combination: $0)
-    }.store(in: &cancellables)
 
     hotkeyStore.$enabledStates.receive(on: RunLoop.main).sink { [weak self] _ in
       guard let self = self else { return }
@@ -266,7 +206,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func registerHotkey(for identifier: HotkeyIdentifier, combination: HotkeyCombination) {
     menuBarController.applyHotkey(combination, to: identifier)
 
-    guard hotkeyStore.isEnabled(identifier) else {
+    // combination.isValid guards against modifier-less hotkeys persisted by
+    // older versions, which would swallow a bare key system-wide
+    guard hotkeyStore.isEnabled(identifier), combination.isValid else {
       HotKeyManager.shared.unregister(identifier: identifier)
       return
     }
@@ -278,40 +220,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.performSpaceSwitch(ISSDirectionLeft)
       case .right:
         self.performSpaceSwitch(ISSDirectionRight)
-      case .space1:
-        self.performSpaceSwitchToIndex(0)
-      case .space2:
-        self.performSpaceSwitchToIndex(1)
-      case .space3:
-        self.performSpaceSwitchToIndex(2)
-      case .space4:
-        self.performSpaceSwitchToIndex(3)
-      case .space5:
-        self.performSpaceSwitchToIndex(4)
-      case .space6:
-        self.performSpaceSwitchToIndex(5)
-      case .space7:
-        self.performSpaceSwitchToIndex(6)
-      case .space8:
-        self.performSpaceSwitchToIndex(7)
-      case .space9:
-        self.performSpaceSwitchToIndex(8)
-      case .space10:
-        self.performSpaceSwitchToIndex(9)
-      case .space11:
-        self.performSpaceSwitchToIndex(10)
-      case .space12:
-        self.performSpaceSwitchToIndex(11)
-      case .space13:
-        self.performSpaceSwitchToIndex(12)
-      case .space14:
-        self.performSpaceSwitchToIndex(13)
-      case .space15:
-        self.performSpaceSwitchToIndex(14)
-      case .space16:
-        self.performSpaceSwitchToIndex(15)
-      case .lastSpace:
-        self.performSpaceLastSpace()
       }
     }
   }
@@ -324,30 +232,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     refreshSpaceInfo()
   }
 
-  private func performSpaceSwitchToIndex(_ index: UInt32) {
-    if !iss_switch_to_index(index) {
-      NSSound.beep()
-      return
-    }
-    refreshSpaceInfo()
-  }
-
-  private func performSpaceLastSpace() {
-    guard let lastSpaceIndex, lastSpaceIndex != currentSpaceIndex else {
-      NSSound.beep()
-      return
-    }
-
-    performSpaceSwitchToIndex(lastSpaceIndex)
-  }
-
   private func refreshSpaceInfo() {
     var info = ISSSpaceInfo()
     if iss_get_menubar_space_info(&info) {
-      if currentSpaceIndex != info.currentIndex {
-        lastSpaceIndex = currentSpaceIndex
-        currentSpaceIndex = info.currentIndex
-      }
+      currentSpaceIndex = info.currentIndex
 
       menuBarController.updateWithSpaceInfo(info)
     } else {

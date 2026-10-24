@@ -692,8 +692,8 @@ bool iss_init(void) {
         predictionsDict = CFDictionaryCreateMutable(NULL, 0, &kCFCopyStringDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
     }
 
-    CGEventMask mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp)
-        | (1ULL << kCGSEventGesture) | (1ULL << kCGSEventDockControl);
+    // Only gesture/dock-control events; the callback never reads key events
+    CGEventMask mask = (1ULL << kCGSEventGesture) | (1ULL << kCGSEventDockControl);
     globalTap = CGEventTapCreate(
         kCGSessionEventTap,
         kCGHeadInsertEventTap,

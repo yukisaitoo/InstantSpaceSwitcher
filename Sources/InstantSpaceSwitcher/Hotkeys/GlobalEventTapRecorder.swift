@@ -32,6 +32,14 @@ final class GlobalEventTapRecorder {
           let recorder = Unmanaged<GlobalEventTapRecorder>.fromOpaque(userInfo)
             .takeUnretainedValue()
 
+          // Re-enable if the system disabled the tap for being too slow
+          if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let eventTap = recorder.eventTap {
+              CGEvent.tapEnable(tap: eventTap, enable: true)
+            }
+            return Unmanaged.passUnretained(event)
+          }
+
           // Handle mouse clicks - cancel recording
           if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
             recorder.onMouseClick?()
