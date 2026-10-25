@@ -3,31 +3,46 @@ import ISS
 import ServiceManagement
 
 final class GeneralSettingsViewController: NSViewController {
-  private let showOSDCheckbox = NSButton(
-    checkboxWithTitle: "Show on-screen display when switching spaces", target: nil, action: nil)
-  private let osdDurationPopup = NSPopUpButton()
-  private let osdDurationLabel = NSTextField(labelWithString: "Duration:")
-  private let overlayDetectionCheckbox = NSButton(
-    checkboxWithTitle: "Enable Mission Control/Exposé detection (experimental)", target: nil, action: nil)
-  private let showOSDInMissionControlCheckbox = NSButton(
-    checkboxWithTitle: "Show on-screen display in Mission Control", target: nil, action: nil)
-  private let swipeOverrideCheckbox = NSButton(
-    checkboxWithTitle: "Override swipe gesture", target: nil, action: nil)
-  private let animationSpeedPopup = NSPopUpButton()
-  private let animationSpeedLabel = NSTextField(labelWithString: "Animation Speed:")
-  private let launchAtLoginCheckbox = NSButton(
-    checkboxWithTitle: "Launch at login", target: nil, action: nil)
-  private let hideMenuBarIconCheckbox = NSButton(
-    checkboxWithTitle: "Hide menu bar icon", target: nil, action: nil)
-
   private let durationPresets = [100, 200, 300, 500, 750, 1000]
-  private let animationSpeedOptions = ["Normal", "Fast", "Faster", "Fastest", "Instant"]
-  private let animationSpeedValues: [Double] = [40.0, 50.0, 60.0, 80.0, 2000.0]
 
-  private let defaults = UserDefaults.standard
+  private let animationSpeeds: [(title: String, velocity: Double)] = [
+    ("Normal", 40), ("Fast", 50), ("Faster", 60), ("Fastest", 80),
+    // The default gestureSpeed in ISS.c
+    ("Instant", 2000)
+  ]
+
+  private let formView = FormView()
+
+  private lazy var launchAtLoginCheckbox = NSButton(
+    checkboxWithTitle: "Launch at login", target: self, action: #selector(launchAtLoginChanged))
+  private lazy var hideMenuBarIconCheckbox = NSButton(
+    checkboxWithTitle: "Hide menu bar icon", target: self, action: #selector(hideMenuBarIconChanged))
+  private lazy var swipeOverrideCheckbox = NSButton(
+    checkboxWithTitle: "Override swipe gesture", target: self, action: #selector(swipeOverrideChanged))
+  private lazy var overlayDetectionCheckbox: NSButton = {
+    let checkbox = NSButton(checkboxWithTitle: "", target: self, action: #selector(overlayDetectionChanged))
+    let title = NSMutableAttributedString(string: "Enable Mission Control/Exposé detection\n")
+    title.append(
+      NSAttributedString(
+        string: "Experimental—may be flaky",
+        attributes: [
+          .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+          .foregroundColor: NSColor.secondaryLabelColor
+        ]))
+    checkbox.attributedTitle = title
+    return checkbox
+  }()
+  private lazy var animationSpeedPopup = popup(
+    titles: animationSpeeds.map(\.title), action: #selector(animationSpeedChanged))
+  private lazy var showOSDCheckbox = NSButton(
+    checkboxWithTitle: "Show for", target: self, action: #selector(showOSDChanged))
+  private lazy var osdDurationPopup = popup(
+    titles: durationPresets.map { "\($0)ms" }, action: #selector(osdDurationChanged))
+  private lazy var showOSDInMissionControlCheckbox = NSButton(
+    checkboxWithTitle: "Show in Mission Control", target: self, action: #selector(showOSDInMissionControlChanged))
 
   override func loadView() {
-    self.view = FormView()
+    view = formView
   }
 
   override func viewDidLoad() {
@@ -37,158 +52,92 @@ final class GeneralSettingsViewController: NSViewController {
     loadSettings()
   }
 
+  private func popup(titles: [String], action: Selector) -> NSPopUpButton {
+    let popup = NSPopUpButton()
+    popup.addItems(withTitles: titles)
+    popup.target = self
+    popup.action = action
+    return popup
+  }
+
   private func setupUI() {
-    guard let formView = view as? FormView else { return }
-
-    if formView.hasRows { return }
-
-    // Targets/Actions
-    showOSDCheckbox.target = self
-    showOSDCheckbox.action = #selector(showOSDChanged)
-    osdDurationPopup.target = self
-    osdDurationPopup.action = #selector(osdDurationChanged)
-    overlayDetectionCheckbox.target = self
-    overlayDetectionCheckbox.action = #selector(overlayDetectionChanged)
-    showOSDInMissionControlCheckbox.target = self
-    showOSDInMissionControlCheckbox.action = #selector(showOSDInMissionControlChanged)
-    swipeOverrideCheckbox.target = self
-    swipeOverrideCheckbox.action = #selector(swipeOverrideChanged)
-    animationSpeedPopup.target = self
-    animationSpeedPopup.action = #selector(animationSpeedChanged)
-    launchAtLoginCheckbox.target = self
-    launchAtLoginCheckbox.action = #selector(launchAtLoginChanged)
-    hideMenuBarIconCheckbox.target = self
-    hideMenuBarIconCheckbox.action = #selector(hideMenuBarIconChanged)
-
-    // Populate data
-    for duration in durationPresets { osdDurationPopup.addItem(withTitle: "\(duration)ms") }
-    for speed in animationSpeedOptions { animationSpeedPopup.addItem(withTitle: speed) }
-
-    // System
-    let systemLabel = NSTextField(labelWithString: "System:")
-    formView.addRow(label: systemLabel, control: launchAtLoginCheckbox)
+    formView.addRow(title: "System:", control: launchAtLoginCheckbox)
     formView.addRow(label: nil, control: hideMenuBarIconCheckbox)
     formView.addRow(label: nil, control: swipeOverrideCheckbox)
-
-    let experimentalTitle = NSMutableAttributedString(string: "Enable Mission Control/Exposé detection\n")
-    let sublabel = NSAttributedString(
-      string: "Experimental—may be flaky",
-      attributes: [
-        .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
-        .foregroundColor: NSColor.secondaryLabelColor
-      ])
-    experimentalTitle.append(sublabel)
-    overlayDetectionCheckbox.attributedTitle = experimentalTitle
-    
     formView.addRow(label: nil, control: overlayDetectionCheckbox)
     formView.addSectionSpacing()
 
-    // Animation Speed
-    let animationLabel = NSTextField(labelWithString: "Animation Speed:")
-    formView.addRow(label: animationLabel, control: animationSpeedPopup)
+    formView.addRow(title: "Animation Speed:", control: animationSpeedPopup)
     formView.addSectionSpacing()
 
-    // OSD
-    let osdLabel = NSTextField(labelWithString: "On-Screen Display:")
-    showOSDCheckbox.title = "Show for"
-    showOSDInMissionControlCheckbox.title = "Show in Mission Control"
-    
-    let osdContainer = NSStackView()
-    osdContainer.orientation = .horizontal
-    osdContainer.spacing = 8
-    osdContainer.addArrangedSubview(showOSDCheckbox)
-    osdContainer.addArrangedSubview(osdDurationPopup)
-    osdContainer.addArrangedSubview(NSTextField(labelWithString: "when switching spaces"))
-    
-    formView.addRow(label: osdLabel, control: osdContainer)
+    let osdRow = NSStackView()
+    osdRow.orientation = .horizontal
+    osdRow.spacing = 8
+    osdRow.addArrangedSubview(showOSDCheckbox)
+    osdRow.addArrangedSubview(osdDurationPopup)
+    osdRow.addArrangedSubview(NSTextField(labelWithString: "when switching spaces"))
+    formView.addRow(title: "On-Screen Display:", control: osdRow)
     formView.addRow(label: nil, control: showOSDInMissionControlCheckbox)
   }
 
   private func loadSettings() {
-    let showOSD = defaults.bool(forKey: "showOSD")
-    showOSDCheckbox.state = showOSD ? .on : .off
-
-    let durationMs = defaults.object(forKey: "osdDurationMs") as? Int ?? 500
-    if let index = durationPresets.firstIndex(of: durationMs) {
-      osdDurationPopup.selectItem(at: index)
-    } else {
-      osdDurationPopup.selectItem(at: 1)
-    }
-
-    osdDurationPopup.isEnabled = showOSD
-    overlayDetectionCheckbox.state = defaults.object(forKey: "overlayDetectionEnabled") as? Bool ?? true ? .on : .off
-    let overlayDetectionEnabled = overlayDetectionCheckbox.state == .on
-    showOSDInMissionControlCheckbox.isEnabled = showOSD && overlayDetectionEnabled
-    showOSDInMissionControlCheckbox.state = defaults.bool(forKey: "showOSDInMissionControl") ? .on : .off
-
-    hideMenuBarIconCheckbox.state = defaults.bool(forKey: "hideMenuBarIcon") ? .on : .off
-    swipeOverrideCheckbox.state = defaults.bool(forKey: "swipeOverride") ? .on : .off
-
-    let animationSpeedValue = defaults.double(forKey: "gestureSpeed")
-    if animationSpeedValue > 0 {
-      if let index = animationSpeedValues.firstIndex(where: { $0 == animationSpeedValue }) {
-        animationSpeedPopup.selectItem(at: index)
-      } else {
-        animationSpeedPopup.selectItem(at: 4)
-      }
-    } else {
-      animationSpeedPopup.selectItem(at: 4)
-    }
-
     launchAtLoginCheckbox.state = SMAppService.mainApp.status == .enabled ? .on : .off
+    hideMenuBarIconCheckbox.state = Settings.hideMenuBarIcon ? .on : .off
+    swipeOverrideCheckbox.state = Settings.swipeOverride ? .on : .off
+    overlayDetectionCheckbox.state = Settings.overlayDetectionEnabled ? .on : .off
+
+    let speedIndex = animationSpeeds.firstIndex { $0.velocity == Settings.gestureSpeed }
+    animationSpeedPopup.selectItem(at: speedIndex ?? animationSpeeds.count - 1)
+
+    showOSDCheckbox.state = Settings.showOSD ? .on : .off
+    osdDurationPopup.selectItem(at: durationPresets.firstIndex(of: Settings.osdDurationMs) ?? 1)
+    showOSDInMissionControlCheckbox.state = Settings.showOSDInMissionControl ? .on : .off
+    updateDependentControls()
+  }
+
+  private func updateDependentControls() {
+    let showOSD = showOSDCheckbox.state == .on
+    osdDurationPopup.isEnabled = showOSD
+    showOSDInMissionControlCheckbox.isEnabled = showOSD && overlayDetectionCheckbox.state == .on
   }
 
   @objc private func showOSDChanged(_ sender: NSButton) {
-    let isEnabled = sender.state == .on
-    defaults.set(isEnabled, forKey: "showOSD")
-    osdDurationPopup.isEnabled = isEnabled
-    let overlayDetectionEnabled = overlayDetectionCheckbox.state == .on
-    showOSDInMissionControlCheckbox.isEnabled = isEnabled && overlayDetectionEnabled
+    Settings.showOSD = sender.state == .on
+    updateDependentControls()
   }
 
   @objc private func overlayDetectionChanged(_ sender: NSButton) {
     let isEnabled = sender.state == .on
-    defaults.set(isEnabled, forKey: "overlayDetectionEnabled")
-    let showOSDEnabled = showOSDCheckbox.state == .on
-    showOSDInMissionControlCheckbox.isEnabled = showOSDEnabled && isEnabled
+    Settings.overlayDetectionEnabled = isEnabled
     iss_set_overlay_detection_enabled(isEnabled)
+    updateDependentControls()
   }
 
   @objc private func showOSDInMissionControlChanged(_ sender: NSButton) {
-    defaults.set(sender.state == .on, forKey: "showOSDInMissionControl")
+    Settings.showOSDInMissionControl = sender.state == .on
   }
 
   @objc private func osdDurationChanged(_ sender: NSPopUpButton) {
-    let index = sender.indexOfSelectedItem
-    guard index >= 0 && index < durationPresets.count else { return }
-    let duration = durationPresets[index]
-    defaults.set(duration, forKey: "osdDurationMs")
+    guard durationPresets.indices.contains(sender.indexOfSelectedItem) else { return }
+    Settings.osdDurationMs = durationPresets[sender.indexOfSelectedItem]
   }
 
   @objc private func swipeOverrideChanged(_ sender: NSButton) {
     let isEnabled = sender.state == .on
-    defaults.set(isEnabled, forKey: "swipeOverride")
+    Settings.swipeOverride = isEnabled
     iss_set_swipe_override(isEnabled)
   }
 
   @objc private func animationSpeedChanged(_ sender: NSPopUpButton) {
-    let index = sender.indexOfSelectedItem
-    guard index >= 0 && index < animationSpeedOptions.count else { return }
-
-    var velocity: Double
-    if index < animationSpeedValues.count {
-      velocity = animationSpeedValues[index]
-    } else {
-      velocity = 2000.0
-    }
-
-    defaults.set(velocity, forKey: "gestureSpeed")
+    guard animationSpeeds.indices.contains(sender.indexOfSelectedItem) else { return }
+    let velocity = animationSpeeds[sender.indexOfSelectedItem].velocity
+    Settings.gestureSpeed = velocity
     iss_set_gesture_speed(velocity)
   }
 
   @objc private func hideMenuBarIconChanged(_ sender: NSButton) {
     let hide = sender.state == .on
-    defaults.set(hide, forKey: "hideMenuBarIcon")
+    Settings.hideMenuBarIcon = hide
     (NSApp.delegate as? AppDelegate)?.setMenuBarIconVisible(!hide)
   }
 
@@ -204,12 +153,8 @@ final class GeneralSettingsViewController: NSViewController {
     } catch {
       NSSound.beep()
       sender.state = shouldEnable ? .off : .on
-
-      let alert = NSAlert()
-      alert.messageText = "Failed to \(shouldEnable ? "enable" : "disable") launch at login"
-      alert.informativeText = error.localizedDescription
-      alert.alertStyle = .warning
-      alert.runModal()
+      Alerts.showWarning(
+        "Failed to \(shouldEnable ? "enable" : "disable") launch at login", info: error.localizedDescription)
     }
   }
 }

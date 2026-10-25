@@ -12,7 +12,6 @@ final class GlobalEventTapRecorder {
   private init() {}
 
   /// Returns false if the tap couldn't be created (e.g. Accessibility revoked).
-  @discardableResult
   func startRecording(onKeyPress: @escaping (NSEvent) -> Void, onMouseClick: @escaping () -> Void) -> Bool {
     stopRecording()
 
@@ -30,7 +29,7 @@ final class GlobalEventTapRecorder {
         options: .defaultTap,
         eventsOfInterest: CGEventMask(eventMask),
         callback: { _, type, event, userInfo in
-          guard let userInfo = userInfo else { return Unmanaged.passUnretained(event) }
+          guard let userInfo else { return Unmanaged.passUnretained(event) }
           let recorder = Unmanaged<GlobalEventTapRecorder>.fromOpaque(userInfo)
             .takeUnretainedValue()
 
@@ -42,20 +41,16 @@ final class GlobalEventTapRecorder {
             return Unmanaged.passUnretained(event)
           }
 
-          // Handle mouse clicks - cancel recording
           if type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown {
             recorder.onMouseClick?()
             // Stop even if the owning control is gone, so a click always frees input
             recorder.stopRecording()
-            return nil  // Consume the click
+            return nil
           }
 
-          // Handle key presses
           if let nsEvent = NSEvent(cgEvent: event) {
             recorder.onKeyPress?(nsEvent)
           }
-
-          // Consume the event so it doesn't propagate
           return nil
         },
         userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -66,22 +61,21 @@ final class GlobalEventTapRecorder {
     }
 
     self.eventTap = eventTap
-
     runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
-    CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+    CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
     CGEvent.tapEnable(tap: eventTap, enable: true)
     return true
   }
 
   func stopRecording() {
-    if let eventTap = eventTap {
+    if let eventTap {
       CGEvent.tapEnable(tap: eventTap, enable: false)
       CFMachPortInvalidate(eventTap)
       self.eventTap = nil
     }
 
-    if let runLoopSource = runLoopSource {
-      CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+    if let runLoopSource {
+      CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
       self.runLoopSource = nil
     }
 

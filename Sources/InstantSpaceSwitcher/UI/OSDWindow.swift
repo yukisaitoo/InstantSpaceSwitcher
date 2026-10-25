@@ -3,6 +3,9 @@ import ISS
 
 final class OSDWindow {
   static let shared = OSDWindow()
+
+  private static let size: CGFloat = 140
+
   private var window: NSWindow?
   private var label: NSTextField?
   private var hideTimer: Timer?
@@ -10,10 +13,10 @@ final class OSDWindow {
   private init() {}
 
   func show(message: String) {
-    guard UserDefaults.standard.bool(forKey: "showOSD") else { return }
+    guard Settings.showOSD else { return }
     // Mission Control OSD suppression requires overlay detection enabled;
     // iss_is_mission_control_active() returns false when it's off
-    if iss_is_mission_control_active() && !UserDefaults.standard.bool(forKey: "showOSDInMissionControl") {
+    if iss_is_mission_control_active() && !Settings.showOSDInMissionControl {
       return
     }
 
@@ -23,43 +26,28 @@ final class OSDWindow {
     if window == nil {
       createWindow()
     }
-
-    guard let window = window, let label = label else { return }
+    guard let window, let label else { return }
 
     label.stringValue = message
 
-    // Position on cursor's screen
-    let windowSize: CGFloat = 140
     let mouseLocation = NSEvent.mouseLocation
-    let screen =
-      NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main
-    if let screen = screen {
+    if let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) ?? NSScreen.main {
       let screenFrame = screen.visibleFrame
-      let x = screenFrame.midX - windowSize / 2
-      let y = screenFrame.midY - windowSize / 2
-      window.setFrameOrigin(NSPoint(x: x, y: y))
+      window.setFrameOrigin(NSPoint(x: screenFrame.midX - Self.size / 2, y: screenFrame.midY - Self.size / 2))
     }
 
     window.alphaValue = 1.0
     window.orderFrontRegardless()
 
-    let durationMs = UserDefaults.standard.object(forKey: "osdDurationMs") as? Int ?? 500
-    let duration = Double(durationMs) / 1000.0
+    let duration = Double(Settings.osdDurationMs) / 1000.0
     hideTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
       self?.hide()
     }
   }
 
   private func createWindow() {
-    let windowSize: CGFloat = 140
-
-    let window = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: windowSize, height: windowSize),
-      styleMask: [.borderless],
-      backing: .buffered,
-      defer: false
-    )
-
+    let frame = NSRect(x: 0, y: 0, width: Self.size, height: Self.size)
+    let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.isOpaque = false
     window.backgroundColor = .clear
@@ -68,9 +56,7 @@ final class OSDWindow {
     window.ignoresMouseEvents = true
     window.hidesOnDeactivate = false
 
-    // Use vibrancy for native macOS look
-    let visualEffect = NSVisualEffectView(
-      frame: NSRect(x: 0, y: 0, width: windowSize, height: windowSize))
+    let visualEffect = NSVisualEffectView(frame: frame)
     visualEffect.material = .hudWindow
     visualEffect.state = .active
     visualEffect.wantsLayer = true
@@ -82,16 +68,13 @@ final class OSDWindow {
     label.textColor = .labelColor
     label.alignment = .center
     label.translatesAutoresizingMaskIntoConstraints = false
-    label.drawsBackground = false
-    label.isBordered = false
-    label.isEditable = false
 
     visualEffect.addSubview(label)
     window.contentView = visualEffect
 
     NSLayoutConstraint.activate([
       label.centerXAnchor.constraint(equalTo: visualEffect.centerXAnchor),
-      label.centerYAnchor.constraint(equalTo: visualEffect.centerYAnchor),
+      label.centerYAnchor.constraint(equalTo: visualEffect.centerYAnchor)
     ])
 
     self.window = window
@@ -99,9 +82,9 @@ final class OSDWindow {
   }
 
   private func hide() {
-    NSAnimationContext.runAnimationGroup({ context in
+    NSAnimationContext.runAnimationGroup { context in
       context.duration = 0.2
       window?.animator().alphaValue = 0.0
-    })
+    }
   }
 }

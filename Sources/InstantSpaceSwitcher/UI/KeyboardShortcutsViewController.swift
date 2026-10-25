@@ -7,22 +7,24 @@ private class RecordingView: NSView {
 }
 
 final class KeyboardShortcutsViewController: NSViewController {
-  private let store = HotkeyStore.shared
-  private var cancellables = Set<AnyCancellable>()
-  private var recordingIdentifier: HotkeyIdentifier?
-  private var recordingButton: NSButton?
-
-  private let tableView = NSTableView()
-  private let scrollView = NSScrollView()
+  private enum Column {
+    static let enabled = NSUserInterfaceItemIdentifier("enabled")
+    static let name = NSUserInterfaceItemIdentifier("name")
+    static let shortcut = NSUserInterfaceItemIdentifier("shortcut")
+  }
 
   private struct ShortcutRow {
     let identifier: HotkeyIdentifier
-    let name: String
     var combination: HotkeyCombination
     var isEnabled: Bool
   }
 
+  private let store = HotkeyStore.shared
+  private var cancellables = Set<AnyCancellable>()
   private var shortcuts: [ShortcutRow] = []
+
+  private let tableView = NSTableView()
+  private let scrollView = NSScrollView()
 
   override func loadView() {
     view = RecordingView(frame: NSRect(x: 0, y: 0, width: 500, height: 300))
@@ -37,20 +39,9 @@ final class KeyboardShortcutsViewController: NSViewController {
   }
 
   private func setupTableView() {
-    let enabledColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("enabled"))
-    enabledColumn.title = "Enabled"
-    enabledColumn.width = 80
-    tableView.addTableColumn(enabledColumn)
-
-    let nameColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
-    nameColumn.title = "Action"
-    nameColumn.width = 210
-    tableView.addTableColumn(nameColumn)
-
-    let shortcutColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("shortcut"))
-    shortcutColumn.title = "Shortcut"
-    shortcutColumn.width = 210
-    tableView.addTableColumn(shortcutColumn)
+    addColumn(Column.enabled, title: "Enabled", width: 80)
+    addColumn(Column.name, title: "Action", width: 210)
+    addColumn(Column.shortcut, title: "Shortcut", width: 210)
 
     tableView.delegate = self
     tableView.dataSource = self
@@ -78,128 +69,122 @@ final class KeyboardShortcutsViewController: NSViewController {
       scrollView.bottomAnchor.constraint(equalTo: resetAllButton.topAnchor, constant: -12),
 
       resetAllButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-      resetAllButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20),
+      resetAllButton.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -20)
     ])
   }
 
+  private func addColumn(_ identifier: NSUserInterfaceItemIdentifier, title: String, width: CGFloat) {
+    let column = NSTableColumn(identifier: identifier)
+    column.title = title
+    column.width = width
+    tableView.addTableColumn(column)
+  }
+
   private func loadShortcuts() {
-    shortcuts = HotkeyIdentifier.allCases.map { id in
-      ShortcutRow(
-        identifier: id,
-        name: id.displayName,
-        combination: store.combination(for: id),
-        isEnabled: store.isEnabled(id)
-      )
+    shortcuts = HotkeyIdentifier.allCases.map {
+      ShortcutRow(identifier: $0, combination: store.combination(for: $0), isEnabled: store.isEnabled($0))
     }
     tableView.reloadData()
   }
 
   private func bindStore() {
-    store.$leftHotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$rightHotkey.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
-      .store(in: &cancellables)
-    store.$enabledStates.receive(on: RunLoop.main).sink { [weak self] _ in self?.loadShortcuts() }
+    store.$hotkeys.combineLatest(store.$enabledStates)
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in self?.loadShortcuts() }
       .store(in: &cancellables)
   }
 }
 
 extension KeyboardShortcutsViewController: NSTableViewDataSource {
   func numberOfRows(in tableView: NSTableView) -> Int {
-    return shortcuts.count
+    shortcuts.count
   }
 }
 
 extension KeyboardShortcutsViewController: NSTableViewDelegate {
-  func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView?
-  {
+  func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+    guard let column = tableColumn?.identifier else { return nil }
     let shortcut = shortcuts[row]
 
-    if tableColumn?.identifier.rawValue == "enabled" {
-      let cellView = NSTableCellView()
-      let checkbox = NSButton(
-        checkboxWithTitle: "", target: self, action: #selector(toggleEnabled(_:)))
-      checkbox.state = shortcut.isEnabled ? .on : .off
-      checkbox.tag = row
-      checkbox.translatesAutoresizingMaskIntoConstraints = false
-      cellView.addSubview(checkbox)
-
-      NSLayoutConstraint.activate([
-        checkbox.centerXAnchor.constraint(equalTo: cellView.centerXAnchor),
-        checkbox.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-      ])
-
-      return cellView
-    } else if tableColumn?.identifier.rawValue == "name" {
-      let cellView = NSTableCellView()
-      let textField = NSTextField(labelWithString: shortcut.name)
-      textField.translatesAutoresizingMaskIntoConstraints = false
-      textField.textColor = shortcut.isEnabled ? .labelColor : .disabledControlTextColor
-      cellView.addSubview(textField)
-      cellView.textField = textField
-
-      NSLayoutConstraint.activate([
-        textField.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 4),
-        textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -4),
-        textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-      ])
-
-      return cellView
-    } else if tableColumn?.identifier.rawValue == "shortcut" {
-      let cellView = NSView()
-
-      let recorder = ShortcutRecorderControl(frame: NSRect(x: 0, y: 0, width: 150, height: 22))
-      recorder.currentShortcut = shortcut.combination
-      recorder.translatesAutoresizingMaskIntoConstraints = false
-      recorder.isEnabled = shortcut.isEnabled
-      recorder.onRecordingComplete = { [weak self] combination in
-        self?.handleRecordingResult(combination, for: shortcut.identifier)
-      }
-      recorder.onRecordingCancelled = {
-        print("[KeyboardShortcuts] Recording cancelled")
-      }
-      cellView.addSubview(recorder)
-
-      let resetButton = NSButton(
-        image: NSImage(
-          systemSymbolName: "arrow.counterclockwise", accessibilityDescription: "Reset")!,
-        target: self, action: #selector(resetShortcut(_:)))
-      resetButton.bezelStyle = .rounded
-      resetButton.isBordered = false
-      resetButton.tag = row
-      resetButton.isEnabled = shortcut.isEnabled
-      resetButton.translatesAutoresizingMaskIntoConstraints = false
-      cellView.addSubview(resetButton)
-
-      NSLayoutConstraint.activate([
-        recorder.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 4),
-        recorder.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-        recorder.widthAnchor.constraint(equalToConstant: 150),
-        recorder.heightAnchor.constraint(equalToConstant: 22),
-
-        resetButton.leadingAnchor.constraint(equalTo: recorder.trailingAnchor, constant: 8),
-        resetButton.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-        resetButton.widthAnchor.constraint(equalToConstant: 24),
-        resetButton.heightAnchor.constraint(equalToConstant: 24),
-      ])
-
-      return cellView
+    switch column {
+    case Column.enabled: return makeEnabledCell(for: shortcut, row: row)
+    case Column.name: return makeNameCell(for: shortcut)
+    case Column.shortcut: return makeShortcutCell(for: shortcut, row: row)
+    default: return nil
     }
+  }
 
-    return nil
+  private func makeEnabledCell(for shortcut: ShortcutRow, row: Int) -> NSView {
+    let cellView = NSTableCellView()
+    let checkbox = NSButton(checkboxWithTitle: "", target: self, action: #selector(toggleEnabled(_:)))
+    checkbox.state = shortcut.isEnabled ? .on : .off
+    checkbox.tag = row
+    checkbox.translatesAutoresizingMaskIntoConstraints = false
+    cellView.addSubview(checkbox)
+
+    NSLayoutConstraint.activate([
+      checkbox.centerXAnchor.constraint(equalTo: cellView.centerXAnchor),
+      checkbox.centerYAnchor.constraint(equalTo: cellView.centerYAnchor)
+    ])
+    return cellView
+  }
+
+  private func makeNameCell(for shortcut: ShortcutRow) -> NSView {
+    let cellView = NSTableCellView()
+    let textField = NSTextField(labelWithString: shortcut.identifier.displayName)
+    textField.translatesAutoresizingMaskIntoConstraints = false
+    textField.textColor = shortcut.isEnabled ? .labelColor : .disabledControlTextColor
+    cellView.addSubview(textField)
+    cellView.textField = textField
+
+    NSLayoutConstraint.activate([
+      textField.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 4),
+      textField.trailingAnchor.constraint(equalTo: cellView.trailingAnchor, constant: -4),
+      textField.centerYAnchor.constraint(equalTo: cellView.centerYAnchor)
+    ])
+    return cellView
+  }
+
+  private func makeShortcutCell(for shortcut: ShortcutRow, row: Int) -> NSView {
+    let cellView = NSView()
+
+    let recorder = ShortcutRecorderControl()
+    recorder.currentShortcut = shortcut.combination
+    recorder.translatesAutoresizingMaskIntoConstraints = false
+    recorder.isEnabled = shortcut.isEnabled
+    recorder.onRecordingComplete = { [weak self] combination in
+      self?.handleRecordingResult(combination, for: shortcut.identifier)
+    }
+    cellView.addSubview(recorder)
+
+    let resetButton = NSButton(
+      image: NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: "Reset")!,
+      target: self, action: #selector(resetShortcut(_:)))
+    resetButton.bezelStyle = .rounded
+    resetButton.isBordered = false
+    resetButton.tag = row
+    resetButton.isEnabled = shortcut.isEnabled
+    resetButton.translatesAutoresizingMaskIntoConstraints = false
+    cellView.addSubview(resetButton)
+
+    NSLayoutConstraint.activate([
+      recorder.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 4),
+      recorder.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
+      recorder.widthAnchor.constraint(equalToConstant: 150),
+      recorder.heightAnchor.constraint(equalToConstant: 22),
+
+      resetButton.leadingAnchor.constraint(equalTo: recorder.trailingAnchor, constant: 8),
+      resetButton.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
+      resetButton.widthAnchor.constraint(equalToConstant: 24),
+      resetButton.heightAnchor.constraint(equalToConstant: 24)
+    ])
+    return cellView
   }
 
   @objc private func resetShortcut(_ sender: NSButton) {
-    let row = sender.tag
-    guard row < shortcuts.count else { return }
-
-    let identifier = shortcuts[row].identifier
-    let defaultCombination: HotkeyCombination
-    switch identifier {
-    case .left: defaultCombination = .defaultLeft
-    case .right: defaultCombination = .defaultRight
-    }
-    store.update(defaultCombination, for: identifier)
+    guard shortcuts.indices.contains(sender.tag) else { return }
+    let identifier = shortcuts[sender.tag].identifier
+    store.update(identifier.defaultCombination, for: identifier)
   }
 
   @objc private func resetAllShortcuts() {
@@ -208,29 +193,21 @@ extension KeyboardShortcutsViewController: NSTableViewDelegate {
 
   @objc private func toggleEnabled(_ sender: NSButton) {
     let row = sender.tag
-    guard row < shortcuts.count else { return }
+    guard shortcuts.indices.contains(row) else { return }
 
-    let identifier = shortcuts[row].identifier
-    store.setEnabled(sender.state == .on, for: identifier)
-    
+    store.setEnabled(sender.state == .on, for: shortcuts[row].identifier)
     shortcuts[row].isEnabled = sender.state == .on
-    tableView.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
+    tableView.reloadData(
+      forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
   }
 
-  private func handleRecordingResult(
-    _ combination: HotkeyCombination, for identifier: HotkeyIdentifier
-  ) {
+  private func handleRecordingResult(_ combination: HotkeyCombination, for identifier: HotkeyIdentifier) {
     if let otherIdentifier = HotkeyIdentifier.allCases.first(where: {
       $0 != identifier && store.combination(for: $0) == combination
     }) {
       NSSound.beep()
-      let alert = NSAlert()
-      alert.messageText = "Shortcut already in use"
-      alert.informativeText =
-        "This shortcut is already assigned to \(otherIdentifier.displayName)."
-      alert.alertStyle = .warning
-      alert.addButton(withTitle: "OK")
-      alert.runModal()
+      Alerts.showWarning(
+        "Shortcut already in use", info: "This shortcut is already assigned to \(otherIdentifier.displayName).")
       return
     }
 

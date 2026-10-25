@@ -3,8 +3,6 @@ import AppKit
 @MainActor
 final class PreferencesWindowController: NSWindowController {
   convenience init() {
-    let tabViewController = PreferencesTabViewController()
-
     let panel = PreferencesPanel(
       contentRect: NSRect(x: 0, y: 0, width: 550, height: 350),
       styleMask: [.titled, .closable],
@@ -13,7 +11,7 @@ final class PreferencesWindowController: NSWindowController {
     )
 
     panel.title = "\(Constants.appName) Settings"
-    panel.contentViewController = tabViewController
+    panel.contentViewController = PreferencesTabViewController()
     panel.isReleasedWhenClosed = false
     panel.hidesOnDeactivate = false
     panel.center()
@@ -23,45 +21,42 @@ final class PreferencesWindowController: NSWindowController {
   }
 
   func present() {
-    // Check accessibility permissions
     if !AXIsProcessTrusted() {
-      showAccessibilityAlert()
+      Alerts.showAccessibilityPermissionRequired(to: "record keyboard shortcuts and switch spaces")
     }
 
-    guard let window = window else { return }
+    guard let window else { return }
 
     NSApp.activate(ignoringOtherApps: true)
     window.makeKeyAndOrderFront(nil)
     window.orderFrontRegardless()
   }
-
-  private func showAccessibilityAlert() {
-    NSApp.activate(ignoringOtherApps: true)
-
-    let alert = NSAlert()
-    alert.messageText = "Accessibility Permission Required"
-    alert.informativeText =
-      "\(Constants.appName) needs Accessibility permissions to record keyboard shortcuts and switch spaces.\n\nPlease enable it in System Settings > Privacy & Security > Accessibility.\n\nIf \(Constants.appName) already appears in that list but isn't working (common after updating the app), remove it with the − button, add it again, then relaunch \(Constants.appName)."
-    alert.alertStyle = .warning
-    alert.addButton(withTitle: "Open System Settings")
-    alert.addButton(withTitle: "Cancel")
-
-    let response = alert.runModal()
-
-    if response == .alertFirstButtonReturn {
-      // Open System Settings to Privacy & Security > Accessibility
-      if let url = URL(
-        string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-      {
-        NSWorkspace.shared.open(url)
-      }
-    }
-  }
 }
 
 extension PreferencesWindowController: NSWindowDelegate {
   func windowDidResignKey(_ notification: Notification) {
-    // Cancel any active recording when window loses focus
     ShortcutRecorderControl.cancelActiveRecording()
+  }
+}
+
+private final class PreferencesPanel: NSPanel {
+  override var canBecomeKey: Bool { true }
+  override var canBecomeMain: Bool { true }
+}
+
+private final class PreferencesTabViewController: NSTabViewController {
+  override func viewDidLoad() {
+    super.viewDidLoad()
+
+    tabStyle = .toolbar
+    addTab(GeneralSettingsViewController(), label: "General", symbolName: "gearshape")
+    addTab(KeyboardShortcutsViewController(), label: "Keyboard", symbolName: "keyboard")
+  }
+
+  private func addTab(_ viewController: NSViewController, label: String, symbolName: String) {
+    let item = NSTabViewItem(viewController: viewController)
+    item.label = label
+    item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)
+    addTabViewItem(item)
   }
 }

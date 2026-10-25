@@ -10,7 +10,6 @@ let package = Package(
     targets: [
         .target(
             name: "ISS",
-            dependencies: [],
             linkerSettings: [
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("CoreFoundation"),

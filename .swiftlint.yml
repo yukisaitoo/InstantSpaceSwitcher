@@ -4,14 +4,10 @@ disabled_rules:
   - type_name
   - nesting
 
-opt_in_rules:
-  - explicit_enum_raw_value
-
 line_length:
   warning: 140
   error: 180
 
 excluded:
   - .build
-  - InstantSpaceSwitcher.app
-  - InstantSpaces_old
+  - build

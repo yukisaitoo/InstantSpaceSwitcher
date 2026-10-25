@@ -8,10 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let menuBarController = MenuBarController()
   private let hotkeyStore = HotkeyStore.shared
   private lazy var preferencesWindowController = PreferencesWindowController()
-  private var currentSpaceIndex: UInt32?
   private var cancellables = Set<AnyCancellable>()
-  private var spaceChangeObserver: Any?
-  private var appActivationObserver: Any?
+  private var workspaceObservers: [Any] = []
 
   func applicationWillFinishLaunching(_ notification: Notification) {
     NSAppleEventManager.shared().setEventHandler(
@@ -31,25 +29,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     if !iss_init() {
       print("Failed to initialize ISS event tap")
-      retryIssInit()
+      scheduleIssInitRetry()
     }
 
-    if UserDefaults.standard.bool(forKey: "swipeOverride") {
+    if Settings.swipeOverride {
       iss_set_swipe_override(true)
     }
-
-    let gestureSpeed = UserDefaults.standard.double(forKey: "gestureSpeed")
-    if gestureSpeed > 0 {
-      iss_set_gesture_speed(gestureSpeed)
+    if Settings.gestureSpeed > 0 {
+      iss_set_gesture_speed(Settings.gestureSpeed)
     }
-
-    // No UI; tune with: defaults write com.interversehq.InstantSpaceSwitcher edgeGestureSpeed -float 400
-    let edgeGestureSpeed = UserDefaults.standard.double(forKey: "edgeGestureSpeed")
-    if edgeGestureSpeed > 0 {
-      iss_set_edge_gesture_speed(edgeGestureSpeed)
+    if Settings.edgeGestureSpeed > 0 {
+      iss_set_edge_gesture_speed(Settings.edgeGestureSpeed)
     }
-
-    if UserDefaults.standard.object(forKey: "overlayDetectionEnabled") as? Bool ?? true {
+    if Settings.overlayDetectionEnabled {
       iss_set_overlay_detection_enabled(true)
     }
 
@@ -62,27 +54,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     setupMainMenu()
     menuBarController.delegate = self
     menuBarController.setup()
-
-    if UserDefaults.standard.bool(forKey: "hideMenuBarIcon") {
+    if Settings.hideMenuBarIcon {
       menuBarController.setIconVisible(false)
     }
 
     bindHotkeys()
-    observeSpaceChanges()
-    observeAppActivation()
+    observeWorkspace(NSWorkspace.activeSpaceDidChangeNotification) { [weak self] in
+      guard let self else { return }
+      self.refreshSpaceInfo()
+      iss_reset_predictions()
+      self.menuBarController.scheduleRefresh(after: 0.2)
+    }
+    observeWorkspace(NSWorkspace.didActivateApplicationNotification) { [weak self] in
+      self?.menuBarController.scheduleRefresh(after: 0.1)
+    }
     refreshSpaceInfo()
   }
 
   func applicationWillTerminate(_ notification: Notification) {
     iss_destroy()
-    stopObservingSpaceChanges()
-    stopObservingAppActivation()
+    for observer in workspaceObservers {
+      NSWorkspace.shared.notificationCenter.removeObserver(observer)
+    }
+    workspaceObservers.removeAll()
   }
 
-  private func retryIssInit() {
-    guard !iss_init() else { return }
+  private func scheduleIssInitRetry() {
     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-      self?.retryIssInit()
+      if !iss_init() {
+        self?.scheduleIssInitRetry()
+      }
     }
   }
 
@@ -95,77 +96,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   private func setupMainMenu() {
-    let mainMenu = NSMenu()
-
-    // App menu
-    let appMenuItem = NSMenuItem()
-    mainMenu.addItem(appMenuItem)
-
     let appMenu = NSMenu(title: Constants.appName)
-    appMenuItem.submenu = appMenu
+    appMenu.addItem(NSMenuItem(title: "About", action: #selector(openAbout), target: self, symbolName: "info.circle"))
+    appMenu.addItem(.separator())
+    appMenu.addItem(
+      NSMenuItem(
+        title: "Settings…", action: #selector(openPreferences), keyEquivalent: ",", target: self,
+        symbolName: "gearshape"))
+    appMenu.addItem(.separator())
 
-    let aboutItem = NSMenuItem(
-      title: "About", action: #selector(openAbout(_:)), keyEquivalent: "")
-    aboutItem.target = self
-    aboutItem.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
-    appMenu.addItem(aboutItem)
-
-    appMenu.addItem(NSMenuItem.separator())
-
-    let preferencesItem = NSMenuItem(
-      title: "Settings…", action: #selector(openPreferences(_:)), keyEquivalent: ",")
-    preferencesItem.target = self
-    preferencesItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
-    appMenu.addItem(preferencesItem)
-
-    appMenu.addItem(NSMenuItem.separator())
-
-    let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
-    let servicesMenu = NSMenu()
-    servicesItem.submenu = servicesMenu
-    NSApp.servicesMenu = servicesMenu
+    let servicesItem = NSMenuItem(title: "Services", action: nil)
+    servicesItem.submenu = NSMenu()
+    NSApp.servicesMenu = servicesItem.submenu
     appMenu.addItem(servicesItem)
+    appMenu.addItem(.separator())
 
-    appMenu.addItem(NSMenuItem.separator())
-
-    let hideItem = NSMenuItem(
-      title: "Hide \(Constants.appName)", action: #selector(NSApplication.hide(_:)),
-      keyEquivalent: "h")
-    hideItem.target = NSApp
-    appMenu.addItem(hideItem)
-
+    appMenu.addItem(
+      NSMenuItem(
+        title: "Hide \(Constants.appName)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h",
+        target: NSApp))
     let hideOthersItem = NSMenuItem(
-      title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)),
-      keyEquivalent: "h")
+      title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h",
+      target: NSApp)
     hideOthersItem.keyEquivalentModifierMask = [.command, .option]
-    hideOthersItem.target = NSApp
     appMenu.addItem(hideOthersItem)
-
-    let showAllItem = NSMenuItem(
-      title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)),
-      keyEquivalent: "")
-    showAllItem.target = NSApp
-    appMenu.addItem(showAllItem)
-
-    appMenu.addItem(NSMenuItem.separator())
-
-    let quitItem = NSMenuItem(
-      title: "Quit", action: #selector(NSApplication.terminate(_:)),
-      keyEquivalent: "q")
-    quitItem.target = NSApp
-    appMenu.addItem(quitItem)
-
-    // File menu
-    let fileMenuItem = NSMenuItem()
-    mainMenu.addItem(fileMenuItem)
+    appMenu.addItem(
+      NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), target: NSApp))
+    appMenu.addItem(.separator())
+    appMenu.addItem(
+      NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q", target: NSApp))
 
     let fileMenu = NSMenu(title: "File")
-    fileMenuItem.submenu = fileMenu
+    fileMenu.addItem(
+      NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
 
-    let closeItem = NSMenuItem(
-      title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-    fileMenu.addItem(closeItem)
-
+    let mainMenu = NSMenu()
+    for submenu in [appMenu, fileMenu] {
+      let item = NSMenuItem()
+      item.submenu = submenu
+      mainMenu.addItem(item)
+    }
     NSApp.mainMenu = mainMenu
   }
 
@@ -175,26 +145,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   @objc private func openAbout(_ sender: Any?) {
     NSApp.activate(ignoringOtherApps: true)
-    NSApp.orderFrontStandardAboutPanel(sender)
-    // Ensure window comes to front if already open
+
+    var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
+    if let gitHash = Bundle.main.object(forInfoDictionaryKey: "GitCommitHash") as? String {
+      options[.version] = gitHash
+    }
+    NSApp.orderFrontStandardAboutPanel(options: options)
     NSApp.windows.first(where: { $0.title.contains("About") })?.makeKeyAndOrderFront(nil)
   }
 
   private func bindHotkeys() {
-    hotkeyStore.$leftHotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .left, combination: $0)
-    }.store(in: &cancellables)
-    hotkeyStore.$rightHotkey.receive(on: RunLoop.main).sink { [weak self] in
-      self?.registerHotkey(for: .right, combination: $0)
-    }.store(in: &cancellables)
-
-    hotkeyStore.$enabledStates.receive(on: RunLoop.main).sink { [weak self] _ in
-      guard let self = self else { return }
-      for identifier in HotkeyIdentifier.allCases {
-        self.registerHotkey(
-          for: identifier, combination: self.hotkeyStore.combination(for: identifier))
-      }
-    }.store(in: &cancellables)
+    hotkeyStore.$hotkeys.combineLatest(hotkeyStore.$enabledStates)
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in self?.reregisterAllHotkeys() }
+      .store(in: &cancellables)
   }
 
   func setMenuBarIconVisible(_ visible: Bool) {
@@ -203,30 +167,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   func reregisterAllHotkeys() {
     for identifier in HotkeyIdentifier.allCases {
-      let combination = hotkeyStore.combination(for: identifier)
-      menuBarController.applyHotkey(combination, to: identifier)
-      registerHotkey(for: identifier, combination: combination)
+      registerHotkey(identifier)
     }
   }
 
-  private func registerHotkey(for identifier: HotkeyIdentifier, combination: HotkeyCombination) {
+  private func registerHotkey(_ identifier: HotkeyIdentifier) {
+    let combination = hotkeyStore.combination(for: identifier)
     menuBarController.applyHotkey(combination, to: identifier)
 
     // combination.isValid guards against modifier-less hotkeys persisted by
     // older versions, which would swallow a bare key system-wide
     guard hotkeyStore.isEnabled(identifier), combination.isValid else {
-      HotKeyManager.shared.unregister(identifier: identifier)
+      HotkeyManager.shared.unregister(identifier: identifier)
       return
     }
 
-    HotKeyManager.shared.register(identifier: identifier, combination: combination) { [weak self] in
-      guard let self else { return }
-      switch identifier {
-      case .left:
-        self.performSpaceSwitch(ISSDirectionLeft)
-      case .right:
-        self.performSpaceSwitch(ISSDirectionRight)
-      }
+    HotkeyManager.shared.register(identifier: identifier, combination: combination) { [weak self] in
+      self?.performSpaceSwitch(identifier == .left ? ISSDirectionLeft : ISSDirectionRight)
     }
   }
 
@@ -240,71 +197,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func refreshSpaceInfo() {
     var info = ISSSpaceInfo()
-    if iss_get_menubar_space_info(&info) {
-      currentSpaceIndex = info.currentIndex
-
-      menuBarController.updateWithSpaceInfo(info)
-    } else {
-      menuBarController.updateWithSpaceInfo(nil)
-    }
+    menuBarController.updateWithSpaceInfo(iss_get_menubar_space_info(&info) ? info : nil)
   }
 
-  private func observeSpaceChanges() {
-    stopObservingSpaceChanges()
-    spaceChangeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-      forName: NSWorkspace.activeSpaceDidChangeNotification,
-      object: nil,
-      queue: .main
-    ) { [weak self] _ in
-      Task { @MainActor [weak self] in
-        guard let self else { return }
-        self.refreshSpaceInfo()
-        iss_reset_predictions()
-        self.menuBarController.scheduleRefresh(after: 0.2)
-      }
+  private func observeWorkspace(_ name: Notification.Name, handler: @escaping @MainActor () -> Void) {
+    let observer = NSWorkspace.shared.notificationCenter.addObserver(
+      forName: name, object: nil, queue: .main
+    ) { _ in
+      Task { @MainActor in handler() }
     }
+    workspaceObservers.append(observer)
   }
-
-  private func stopObservingSpaceChanges() {
-    if let observer = spaceChangeObserver {
-      NSWorkspace.shared.notificationCenter.removeObserver(observer)
-      spaceChangeObserver = nil
-    }
-  }
-
-  private func observeAppActivation() {
-    stopObservingAppActivation()
-    appActivationObserver = NSWorkspace.shared.notificationCenter.addObserver(
-      forName: NSWorkspace.didActivateApplicationNotification,
-      object: nil,
-      queue: .main
-    ) { [weak self] _ in
-      Task { @MainActor [weak self] in
-        self?.menuBarController.scheduleRefresh(after: 0.1)
-      }
-    }
-  }
-
-  private func stopObservingAppActivation() {
-    if let observer = appActivationObserver {
-      NSWorkspace.shared.notificationCenter.removeObserver(observer)
-      appActivationObserver = nil
-    }
-  }
-
 }
 
 extension AppDelegate: MenuBarControllerDelegate {
-  func menuBarControllerDidRequestSwitchLeft(_ controller: MenuBarController) {
-    performSpaceSwitch(ISSDirectionLeft)
-  }
-
-  func menuBarControllerDidRequestSwitchRight(_ controller: MenuBarController) {
-    performSpaceSwitch(ISSDirectionRight)
+  func menuBarController(_ controller: MenuBarController, didRequestSwitch direction: ISSDirection) {
+    performSpaceSwitch(direction)
   }
 
   func menuBarControllerDidRequestPreferences(_ controller: MenuBarController) {
     preferencesWindowController.present()
+  }
+
+  func menuBarControllerDidRequestAbout(_ controller: MenuBarController) {
+    openAbout(controller)
   }
 
   func menuBarControllerDidRequestRefresh(_ controller: MenuBarController) {

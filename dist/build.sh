@@ -47,7 +47,7 @@ if [[ -n "${PRESET_CODESIGN_IDENTITY}" ]]; then
 fi
 
 # Pick the signing identity: explicit env var wins; otherwise use the local dev
-# certificate if dist/make-dev-cert.sh has created it; otherwise ad-hoc (CI).
+# certificate if dist/make-dev-cert.sh has created it; otherwise ad-hoc.
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
   IDENTITY_SOURCE="from environment"
 elif security find-identity -v -p codesigning 2>/dev/null | grep -Fq "\"${DEV_CERT_NAME}\""; then
@@ -66,7 +66,6 @@ fi
 BUILD_PATH="${BUILD_DIR}/${BUILD_CONFIG}"
 APP_BUNDLE="${BUILD_DIR}/${PRODUCT_NAME}.app"
 
-# Build arm64 and x86_64 in parallel
 echo "Building arm64 and x86_64 in parallel..."
 ARM64_LOG=$(mktemp)
 X86_LOG=$(mktemp)
@@ -78,11 +77,11 @@ PID_X86=$!
 
 printf "  arm64: starting...\n x86_64: starting...\n"
 while kill -0 "${PID_ARM64}" 2>/dev/null || kill -0 "${PID_X86}" 2>/dev/null; do
-    ARM_LINE=$(tail -1 "${ARM64_LOG}" 2>/dev/null)
-    X86_LINE=$(tail -1 "${X86_LOG}"  2>/dev/null)
-    printf "\033[2A\033[2K  arm64: %.110s\n\033[2K x86_64: %.110s\n" \
-        "${ARM_LINE:-starting...}" "${X86_LINE:-starting...}"
-    sleep 0.2
+  ARM_LINE=$(tail -1 "${ARM64_LOG}" 2>/dev/null)
+  X86_LINE=$(tail -1 "${X86_LOG}"  2>/dev/null)
+  printf "\033[2A\033[2K  arm64: %.110s\n\033[2K x86_64: %.110s\n" \
+    "${ARM_LINE:-starting...}" "${X86_LINE:-starting...}"
+  sleep 0.2
 done
 
 wait "${PID_ARM64}" && ARM64_STATUS=0 || ARM64_STATUS=$?
@@ -93,10 +92,10 @@ wait "${PID_X86}"   && X86_STATUS=0  || X86_STATUS=$?
 printf "\033[2A\033[2K  arm64: %s\n\033[2K x86_64: %s\n" "${ARM_FINAL}" "${X86_FINAL}"
 
 if [[ ${ARM64_STATUS} -ne 0 ]]; then
-    echo ""; echo "=== arm64 build output ==="; cat "${ARM64_LOG}"
+  echo ""; echo "=== arm64 build output ==="; cat "${ARM64_LOG}"
 fi
 if [[ ${X86_STATUS} -ne 0 ]]; then
-    echo ""; echo "=== x86_64 build output ==="; cat "${X86_LOG}"
+  echo ""; echo "=== x86_64 build output ==="; cat "${X86_LOG}"
 fi
 rm -f "${ARM64_LOG}" "${X86_LOG}"
 

@@ -26,7 +26,7 @@ enum MenuBarIconRenderer {
 
     let attributes: [NSAttributedString.Key: Any] = [
       .font: NSFont.systemFont(ofSize: iconSize * 0.6, weight: .bold),
-      .foregroundColor: NSColor.white,
+      .foregroundColor: NSColor.white
     ]
 
     let textSize = displayText.size(withAttributes: attributes)

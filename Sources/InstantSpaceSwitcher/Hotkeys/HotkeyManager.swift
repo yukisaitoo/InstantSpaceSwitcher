@@ -1,11 +1,10 @@
 import AppKit
 import Carbon
 
-class HotKeyManager {
-  static let shared = HotKeyManager()
+final class HotkeyManager {
+  static let shared = HotkeyManager()
 
   private struct Entry {
-    let identifier: HotkeyIdentifier
     let combination: HotkeyCombination
     let handler: () -> Void
   }
@@ -22,9 +21,7 @@ class HotKeyManager {
   func register(
     identifier: HotkeyIdentifier, combination: HotkeyCombination, handler: @escaping () -> Void
   ) {
-    unregister(identifier: identifier)
-
-    entries[identifier] = Entry(identifier: identifier, combination: combination, handler: handler)
+    entries[identifier] = Entry(combination: combination, handler: handler)
     installEventTap()
   }
 
@@ -54,7 +51,7 @@ class HotKeyManager {
         eventsOfInterest: eventMask,
         callback: { _, type, event, userInfo in
           guard let userInfo else { return Unmanaged.passUnretained(event) }
-          let manager = Unmanaged<HotKeyManager>.fromOpaque(userInfo).takeUnretainedValue()
+          let manager = Unmanaged<HotkeyManager>.fromOpaque(userInfo).takeUnretainedValue()
 
           if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let eventTap = manager.eventTap {
@@ -63,14 +60,10 @@ class HotKeyManager {
             return Unmanaged.passUnretained(event)
           }
 
-          guard type == .keyDown else {
+          guard type == .keyDown, manager.dispatch(event: event) else {
             return Unmanaged.passUnretained(event)
           }
-
-          if manager.dispatch(event: event) {
-            return nil
-          }
-          return Unmanaged.passUnretained(event)
+          return nil
         },
         userInfo: Unmanaged.passUnretained(self).toOpaque()
       )
@@ -80,7 +73,6 @@ class HotKeyManager {
       return
     }
 
-    retryScheduled = false
     self.eventTap = eventTap
     runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
     if let runLoopSource {
@@ -102,19 +94,20 @@ class HotKeyManager {
 
   private func dispatch(event: CGEvent) -> Bool {
     let keyCode = UInt32(event.getIntegerValueField(.keyboardEventKeycode))
-    let rawFlags = event.flags.rawValue
-    let selectedEntry = Self.preferredEntry(from: Array(entries.values), keyCode: keyCode, flags: rawFlags)
-
-    if let selectedEntry {
-      DispatchQueue.main.async {
-        selectedEntry.handler()
-      }
-      return true
+    guard
+      let combination = Self.preferredCombination(
+        from: entries.values.map(\.combination), keyCode: keyCode, eventModifierFlags: event.flags.rawValue),
+      let entry = entries.values.first(where: { $0.combination == combination })
+    else {
+      return false
     }
 
-    return false
+    DispatchQueue.main.async(execute: entry.handler)
+    return true
   }
 
+  /// The combination matching the key event, preferring AltGr-specific shortcuts
+  /// over generic Option ones.
   static func preferredCombination(
     from combinations: [HotkeyCombination], keyCode: UInt32, eventModifierFlags flags: UInt64
   ) -> HotkeyCombination? {
@@ -122,16 +115,6 @@ class HotKeyManager {
       $0.keyCode == keyCode && $0.matches(eventModifierFlags: flags)
     }.max {
       priority(for: $0) < priority(for: $1)
-    }
-  }
-
-  private static func preferredEntry(
-    from entries: [Entry], keyCode: UInt32, flags: UInt64
-  ) -> Entry? {
-    entries.filter {
-      $0.combination.keyCode == keyCode && $0.combination.matches(eventModifierFlags: flags)
-    }.max {
-      priority(for: $0.combination) < priority(for: $1.combination)
     }
   }
 

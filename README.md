@@ -33,7 +33,7 @@ This is a personal fork of [InstantSpaceSwitcher](https://github.com/jurplel/Ins
 <details>
 <summary>Tuning the first-desktop-space switch speed</summary>
 
-Switching to the first desktop space uses a slightly slower gesture (default 160) so floating windows render properly. 
+Switching to the first desktop space uses a slightly slower gesture (default 160) so floating windows render properly.
 
 If they still get left behind, or the switch doesn't feel instant enough, try another value and relaunch the app. It's never faster than the Animation Speed setting. This has no effect on macOS 27+, which ignores gesture speed.
 
