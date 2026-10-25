@@ -103,5 +103,5 @@ echo "Code-signing identities now available:"
 security find-identity -v -p codesigning
 echo ""
 echo "Next: ./dist/build.sh --install (the certificate is detected automatically)"
-echo "Then remove the app from Privacy & Security > Accessibility once (\"-\" button) and grant again."
+echo "If an older build already had Accessibility permission, remove it there once (\"-\" button) and grant again."
 echo "The first build will ask whether codesign may use the key; choose \"Always Allow\" for silent builds."
