@@ -5,11 +5,10 @@ import ISS
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-  private let menuBarController = MenuBarController()
   private let hotkeyStore = HotkeyStore.shared
   private lazy var preferencesWindowController = PreferencesWindowController()
   private var cancellables = Set<AnyCancellable>()
-  private var workspaceObservers: [Any] = []
+  private var spaceChangeObserver: Any?
 
   func applicationWillFinishLaunching(_ notification: Notification) {
     NSAppleEventManager.shared().setEventHandler(
@@ -35,12 +34,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if Settings.swipeOverride {
       iss_set_swipe_override(true)
     }
-    if Settings.gestureSpeed > 0 {
-      iss_set_gesture_speed(Settings.gestureSpeed)
-    }
-    if Settings.edgeGestureSpeed > 0 {
-      iss_set_edge_gesture_speed(Settings.edgeGestureSpeed)
-    }
     if Settings.overlayDetectionEnabled {
       iss_set_overlay_detection_enabled(true)
     }
@@ -52,31 +45,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     setupMainMenu()
-    menuBarController.delegate = self
-    menuBarController.setup()
-    if Settings.hideMenuBarIcon {
-      menuBarController.setIconVisible(false)
-    }
-
     bindHotkeys()
-    observeWorkspace(NSWorkspace.activeSpaceDidChangeNotification) { [weak self] in
-      guard let self else { return }
-      self.refreshSpaceInfo()
+    spaceChangeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+    ) { _ in
       iss_reset_predictions()
-      self.menuBarController.scheduleRefresh(after: 0.2)
     }
-    observeWorkspace(NSWorkspace.didActivateApplicationNotification) { [weak self] in
-      self?.menuBarController.scheduleRefresh(after: 0.1)
-    }
-    refreshSpaceInfo()
   }
 
   func applicationWillTerminate(_ notification: Notification) {
     iss_destroy()
-    for observer in workspaceObservers {
-      NSWorkspace.shared.notificationCenter.removeObserver(observer)
+    if let spaceChangeObserver {
+      NSWorkspace.shared.notificationCenter.removeObserver(spaceChangeObserver)
     }
-    workspaceObservers.removeAll()
   }
 
   private func scheduleIssInitRetry() {
@@ -161,10 +142,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       .store(in: &cancellables)
   }
 
-  func setMenuBarIconVisible(_ visible: Bool) {
-    menuBarController.setIconVisible(visible)
-  }
-
   func reregisterAllHotkeys() {
     for identifier in HotkeyIdentifier.allCases {
       registerHotkey(identifier)
@@ -173,7 +150,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func registerHotkey(_ identifier: HotkeyIdentifier) {
     let combination = hotkeyStore.combination(for: identifier)
-    menuBarController.applyHotkey(combination, to: identifier)
 
     // combination.isValid guards against modifier-less hotkeys persisted by
     // older versions, which would swallow a bare key system-wide
@@ -190,40 +166,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func performSpaceSwitch(_ direction: ISSDirection) {
     if !iss_switch(direction) {
       NSSound.beep()
-      return
     }
-    refreshSpaceInfo()
-  }
-
-  private func refreshSpaceInfo() {
-    var info = ISSSpaceInfo()
-    menuBarController.updateWithSpaceInfo(iss_get_menubar_space_info(&info) ? info : nil)
-  }
-
-  private func observeWorkspace(_ name: Notification.Name, handler: @escaping @MainActor () -> Void) {
-    let observer = NSWorkspace.shared.notificationCenter.addObserver(
-      forName: name, object: nil, queue: .main
-    ) { _ in
-      Task { @MainActor in handler() }
-    }
-    workspaceObservers.append(observer)
-  }
-}
-
-extension AppDelegate: MenuBarControllerDelegate {
-  func menuBarController(_ controller: MenuBarController, didRequestSwitch direction: ISSDirection) {
-    performSpaceSwitch(direction)
-  }
-
-  func menuBarControllerDidRequestPreferences(_ controller: MenuBarController) {
-    preferencesWindowController.present()
-  }
-
-  func menuBarControllerDidRequestAbout(_ controller: MenuBarController) {
-    openAbout(controller)
-  }
-
-  func menuBarControllerDidRequestRefresh(_ controller: MenuBarController) {
-    refreshSpaceInfo()
   }
 }

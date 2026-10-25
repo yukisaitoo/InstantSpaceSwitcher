@@ -19,7 +19,7 @@
     <key>NSHumanReadableCopyright</key>
     <string>Copyright © 2026 jurplel</string>
     <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
+    <string>27.0</string>
     <key>LSUIElement</key>
     <true/>
 </dict>

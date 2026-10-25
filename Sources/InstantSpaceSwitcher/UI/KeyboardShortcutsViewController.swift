@@ -196,9 +196,6 @@ extension KeyboardShortcutsViewController: NSTableViewDelegate {
     guard shortcuts.indices.contains(row) else { return }
 
     store.setEnabled(sender.state == .on, for: shortcuts[row].identifier)
-    shortcuts[row].isEnabled = sender.state == .on
-    tableView.reloadData(
-      forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integersIn: 0..<tableView.numberOfColumns))
   }
 
   private func handleRecordingResult(_ combination: HotkeyCombination, for identifier: HotkeyIdentifier) {

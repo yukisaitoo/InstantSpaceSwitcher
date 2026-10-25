@@ -8,23 +8,9 @@ enum Settings {
     set { defaults.set(newValue, forKey: "swipeOverride") }
   }
 
-  static var gestureSpeed: Double {
-    get { defaults.double(forKey: "gestureSpeed") }
-    set { defaults.set(newValue, forKey: "gestureSpeed") }
-  }
-
-  static var edgeGestureSpeed: Double {
-    defaults.double(forKey: "edgeGestureSpeed")
-  }
-
   static var overlayDetectionEnabled: Bool {
     get { defaults.object(forKey: "overlayDetectionEnabled") as? Bool ?? true }
     set { defaults.set(newValue, forKey: "overlayDetectionEnabled") }
-  }
-
-  static var hideMenuBarIcon: Bool {
-    get { defaults.bool(forKey: "hideMenuBarIcon") }
-    set { defaults.set(newValue, forKey: "hideMenuBarIcon") }
   }
 
   static var showOSD: Bool {

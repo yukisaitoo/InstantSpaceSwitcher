@@ -15,15 +15,4 @@
  */
 CGEventRef iss_augment_dock_swipe_event(CGEventRef event);
 
-/**
- * @brief Returns true when the running OS is macOS 27 or later.
- *
- * On these versions, synthetic dock-swipe events must carry the raw IOHID
- * payload created by iss_augment_dock_swipe_event() in order to be honored.
- *
- * For testing, set the environment variable ISS_FORCE_EVENT_AUGMENTATION=1
- * to enable augmentation on any version, or =0 to disable it.
- */
-bool iss_requires_event_augmentation(void);
-
 #endif /* EVENT_SERIALIZE_H */

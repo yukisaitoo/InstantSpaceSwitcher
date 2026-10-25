@@ -3,11 +3,17 @@
 #include "event_serialize.h"
 
 #include <ApplicationServices/ApplicationServices.h>
-#include <math.h>
 #include <mach/mach_time.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+
+// The space state of the display under the cursor
+typedef struct {
+    unsigned int currentIndex; // Zero-based index of the active space
+    unsigned int spaceCount;   // Total number of user-visible spaces
+    char displayID[128];       // UUID string of the display
+} ISSSpaceInfo;
 
 static CFMachPortRef globalTap = NULL;
 static CFRunLoopSourceRef globalSource = NULL;
@@ -20,16 +26,6 @@ static bool swipeFired = false;
 
 // Our macOS 27 swipes re-enter the tap with sourcePid == 0, so count them out instead
 static unsigned int syntheticEventsToPassThrough = 0;
-
-static double gestureSpeed = 2000.0;
-
-// At full Instant velocity, landing on the first space triggers the Dock's
-// rubber-band handling, which can leave canJoinAllSpaces overlay windows
-// (e.g. FaceTime PiP) detached until the next transition. Use a lower
-// velocity for switches that land on the first space. The last space has
-// never shown this, so it stays at full speed.
-// (macOS 27+ augmented gestures ignore velocity settings entirely.)
-static double edgeGestureSpeed = 160.0;
 
 static ISSSwitchCallback switchCallback = NULL;
 
@@ -181,7 +177,7 @@ static CFDictionaryRef find_display_dict(CFArrayRef displays, CFStringRef identi
     return firstDisplay;
 }
 
-static bool load_space_info(ISSSpaceInfo *info, bool useCursorDisplay) {
+static bool load_space_info(ISSSpaceInfo *info) {
     memset(info, 0, sizeof(*info));
 
     if (!cgs_symbols_available()) {
@@ -201,12 +197,7 @@ static bool load_space_info(ISSSpaceInfo *info, bool useCursorDisplay) {
         return false;
     }
 
-    CFStringRef displayIdentifier = NULL;
-    if (useCursorDisplay) {
-        displayIdentifier = copy_cursor_display_uuid();
-    } else if (&CGSCopyActiveMenuBarDisplayIdentifier != NULL) {
-        displayIdentifier = CGSCopyActiveMenuBarDisplayIdentifier(connection);
-    }
+    CFStringRef displayIdentifier = copy_cursor_display_uuid();
 
     CFArrayRef displays = CGSCopyManagedDisplaySpaces(connection, displayIdentifier);
     if (!displays && displayIdentifier) {
@@ -223,10 +214,6 @@ static bool load_space_info(ISSSpaceInfo *info, bool useCursorDisplay) {
         CFRelease(displayIdentifier);
     }
     return success;
-}
-
-bool iss_get_menubar_space_info(ISSSpaceInfo *info) {
-    return info && load_space_info(info, false);
 }
 
 static void scan_dock_window_list(CFArrayRef windowList,
@@ -255,7 +242,6 @@ static void scan_dock_window_list(CFArrayRef windowList,
 
 // Both overlays show Dock windows at layers 18 and 20. App Exposé has no more
 // layer-20 windows than layer-18 ones; Mission Control has more.
-// These two are exported for the unit tests, which bind them by name.
 bool iss_is_expose_detected_in_window_list(CFArrayRef windowList) {
     int layer18Count = 0;
     int layer20Count = 0;
@@ -290,12 +276,6 @@ bool iss_is_mission_control_active(void) {
 // Rounds to the smallest non-zero 16.16 fixed-point value: it keeps the direction but
 // leaves nothing to animate, and the velocity still commits the switch.
 static const double kMinimalSwipeProgress = 0.000016;
-
-// Exported for the unit tests.
-double iss_swipe_progress_for_phase(CGSGesturePhase phase, ISSDirection direction) {
-    (void)phase;
-    return direction == ISSDirectionRight ? kMinimalSwipeProgress : -kMinimalSwipeProgress;
-}
 
 // The fling on the ended phase is what commits the switch on macOS 27. The payload
 // field is 16.16 fixed point (max ~32767), so the speed setting isn't reused here.
@@ -342,7 +322,7 @@ static CGEventRef create_dock_swipe_event(CGSGesturePhase phase) {
     return event;
 }
 
-static bool post_modern_dock_swipe(CGSGesturePhase phase, ISSDirection direction) {
+static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction) {
     const double sign = modern_swipe_sign(direction);
 
     CGEventRef event = create_dock_swipe_event(phase);
@@ -386,54 +366,22 @@ static bool post_modern_dock_swipe(CGSGesturePhase phase, ISSDirection direction
     return true;
 }
 
-static bool post_legacy_dock_swipe(CGSGesturePhase phase, ISSDirection direction, double velocity) {
-    CGEventRef event = create_dock_swipe_event(phase);
-    if (!event) {
-        return false;
-    }
-    const double signedVelocity = direction == ISSDirectionRight ? velocity : -velocity;
-    CGEventSetDoubleValueField(event, kCGEventGestureSwipeProgress, iss_swipe_progress_for_phase(phase, direction));
-    CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityX, signedVelocity);
-    CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityY, signedVelocity);
-    CGEventPost(kCGSessionEventTap, event);
-    CFRelease(event);
-    return true;
-}
-
-static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction, double velocity) {
-    if (iss_requires_event_augmentation()) {
-        return post_modern_dock_swipe(phase, direction);
-    }
-    return post_legacy_dock_swipe(phase, direction, velocity);
-}
-
-static bool perform_switch_gesture(ISSDirection direction, double velocity) {
+static bool perform_switch_gesture(ISSDirection direction) {
     // All three phases are needed; with only two, Mission Control doesn't work.
     lastGestureTime = CFAbsoluteTimeGetCurrent();
-    return post_dock_swipe(kCGSGesturePhaseBegan,   direction, velocity)
-        && post_dock_swipe(kCGSGesturePhaseChanged, direction, velocity)
-        && post_dock_swipe(kCGSGesturePhaseEnded,   direction, velocity);
-}
-
-static double velocity_for_target(unsigned int target) {
-    if (target == 0) {
-        // Never faster than the user's chosen speed
-        return fmin(gestureSpeed, edgeGestureSpeed);
-    }
-    return gestureSpeed;
+    return post_dock_swipe(kCGSGesturePhaseBegan,   direction)
+        && post_dock_swipe(kCGSGesturePhaseChanged, direction)
+        && post_dock_swipe(kCGSGesturePhaseEnded,   direction);
 }
 
 static bool should_block_switch(const ISSSpaceInfo *info, unsigned int current, ISSDirection direction) {
-    if (info->spaceCount == 0) {
-        return true;
-    }
     return direction == ISSDirectionLeft ? current == 0 : current + 1 >= info->spaceCount;
 }
 
 bool iss_switch(ISSDirection direction) {
     ISSSpaceInfo info;
-    if (!load_space_info(&info, true)) {
-        return perform_switch_gesture(direction, gestureSpeed);
+    if (!load_space_info(&info)) {
+        return perform_switch_gesture(direction);
     }
 
     unsigned int predicted;
@@ -443,7 +391,7 @@ bool iss_switch(ISSDirection direction) {
     }
 
     unsigned int target = direction == ISSDirectionLeft ? current - 1 : current + 1;
-    if (!perform_switch_gesture(direction, velocity_for_target(target))) {
+    if (!perform_switch_gesture(direction)) {
         return false;
     }
     set_prediction(info.displayID, target);
@@ -499,17 +447,17 @@ static CGEventRef handle_dock_swipe(CGEventRef event) {
         }
         fire_once(CGEventGetDoubleValueField(event, kCGEventGestureSwipeVelocityX));
         reset_swipe_state();
-        if (iss_requires_event_augmentation()) {
-            // On macOS 27 the Dock needs the real ended event to close its gesture
-            // state; zero the motion so it doesn't switch a second time
-            CGEventSetDoubleValueField(event, kCGEventGestureSwipeProgress, 0.0);
-            CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityX, 0.0);
-            CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityY, 0.0);
-            return event;
-        }
-        return NULL;
+        // On macOS 27 the Dock needs the real ended event to close its gesture
+        // state; zero the motion so it doesn't switch a second time
+        CGEventSetDoubleValueField(event, kCGEventGestureSwipeProgress, 0.0);
+        CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityX, 0.0);
+        CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityY, 0.0);
+        return event;
 
     case kCGSGesturePhaseCancelled:
+        if (!swipeTracking) {
+            return event;
+        }
         reset_swipe_state();
         return NULL;
 
@@ -633,14 +581,6 @@ void iss_set_swipe_override(bool enabled) {
     if (!enabled) {
         reset_swipe_state();
     }
-}
-
-void iss_set_gesture_speed(double speed) {
-    gestureSpeed = speed;
-}
-
-void iss_set_edge_gesture_speed(double speed) {
-    edgeGestureSpeed = speed;
 }
 
 void iss_set_overlay_detection_enabled(bool enabled) {

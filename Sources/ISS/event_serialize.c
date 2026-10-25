@@ -4,10 +4,8 @@
 #include <ApplicationServices/ApplicationServices.h>
 #include <mach/mach_time.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/sysctl.h>
 
 #pragma pack(push, 1)
 
@@ -176,26 +174,4 @@ CGEventRef iss_augment_dock_swipe_event(CGEventRef event) {
     CGEventRef result = CGEventCreateFromData(kCFAllocatorDefault, new_data);
     CFRelease(new_data);
     return result;
-}
-
-static bool compute_requires_event_augmentation(void) {
-    const char *force_override = getenv("ISS_FORCE_EVENT_AUGMENTATION");
-    if (force_override) {
-        return strcmp(force_override, "1") == 0;
-    }
-
-    char version[32] = {0};
-    size_t size = sizeof(version);
-    int major = 0;
-    return sysctlbyname("kern.osproductversion", version, &size, NULL, 0) == 0 &&
-           sscanf(version, "%d", &major) == 1 &&
-           major >= 27;
-}
-
-bool iss_requires_event_augmentation(void) {
-    static int cached_result = -1;
-    if (cached_result == -1) {
-        cached_result = compute_requires_event_augmentation();
-    }
-    return cached_result;
 }

@@ -5,18 +5,10 @@ import ServiceManagement
 final class GeneralSettingsViewController: NSViewController {
   private let durationPresets = [100, 200, 300, 500, 750, 1000]
 
-  private let animationSpeeds: [(title: String, velocity: Double)] = [
-    ("Normal", 40), ("Fast", 50), ("Faster", 60), ("Fastest", 80),
-    // The default gestureSpeed in ISS.c
-    ("Instant", 2000)
-  ]
-
   private let formView = FormView()
 
   private lazy var launchAtLoginCheckbox = NSButton(
     checkboxWithTitle: "Launch at login", target: self, action: #selector(launchAtLoginChanged))
-  private lazy var hideMenuBarIconCheckbox = NSButton(
-    checkboxWithTitle: "Hide menu bar icon", target: self, action: #selector(hideMenuBarIconChanged))
   private lazy var swipeOverrideCheckbox = NSButton(
     checkboxWithTitle: "Override swipe gesture", target: self, action: #selector(swipeOverrideChanged))
   private lazy var overlayDetectionCheckbox: NSButton = {
@@ -32,8 +24,6 @@ final class GeneralSettingsViewController: NSViewController {
     checkbox.attributedTitle = title
     return checkbox
   }()
-  private lazy var animationSpeedPopup = popup(
-    titles: animationSpeeds.map(\.title), action: #selector(animationSpeedChanged))
   private lazy var showOSDCheckbox = NSButton(
     checkboxWithTitle: "Show for", target: self, action: #selector(showOSDChanged))
   private lazy var osdDurationPopup = popup(
@@ -62,12 +52,8 @@ final class GeneralSettingsViewController: NSViewController {
 
   private func setupUI() {
     formView.addRow(title: "System:", control: launchAtLoginCheckbox)
-    formView.addRow(label: nil, control: hideMenuBarIconCheckbox)
     formView.addRow(label: nil, control: swipeOverrideCheckbox)
     formView.addRow(label: nil, control: overlayDetectionCheckbox)
-    formView.addSectionSpacing()
-
-    formView.addRow(title: "Animation Speed:", control: animationSpeedPopup)
     formView.addSectionSpacing()
 
     let osdRow = NSStackView()
@@ -82,12 +68,8 @@ final class GeneralSettingsViewController: NSViewController {
 
   private func loadSettings() {
     launchAtLoginCheckbox.state = SMAppService.mainApp.status == .enabled ? .on : .off
-    hideMenuBarIconCheckbox.state = Settings.hideMenuBarIcon ? .on : .off
     swipeOverrideCheckbox.state = Settings.swipeOverride ? .on : .off
     overlayDetectionCheckbox.state = Settings.overlayDetectionEnabled ? .on : .off
-
-    let speedIndex = animationSpeeds.firstIndex { $0.velocity == Settings.gestureSpeed }
-    animationSpeedPopup.selectItem(at: speedIndex ?? animationSpeeds.count - 1)
 
     showOSDCheckbox.state = Settings.showOSD ? .on : .off
     osdDurationPopup.selectItem(at: durationPresets.firstIndex(of: Settings.osdDurationMs) ?? 1)
@@ -126,19 +108,6 @@ final class GeneralSettingsViewController: NSViewController {
     let isEnabled = sender.state == .on
     Settings.swipeOverride = isEnabled
     iss_set_swipe_override(isEnabled)
-  }
-
-  @objc private func animationSpeedChanged(_ sender: NSPopUpButton) {
-    guard animationSpeeds.indices.contains(sender.indexOfSelectedItem) else { return }
-    let velocity = animationSpeeds[sender.indexOfSelectedItem].velocity
-    Settings.gestureSpeed = velocity
-    iss_set_gesture_speed(velocity)
-  }
-
-  @objc private func hideMenuBarIconChanged(_ sender: NSButton) {
-    let hide = sender.state == .on
-    Settings.hideMenuBarIcon = hide
-    (NSApp.delegate as? AppDelegate)?.setMenuBarIconVisible(!hide)
   }
 
   @objc private func launchAtLoginChanged(_ sender: NSButton) {

@@ -21,15 +21,6 @@ struct HotkeyCombination: Codable, Equatable {
     HotkeyCombination.symbols(for: modifiers, optionKeyKind: optionKeyKind) + displayKey
   }
 
-  var cocoaModifierFlags: NSEvent.ModifierFlags {
-    var flags: NSEvent.ModifierFlags = []
-    if modifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
-    if modifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
-    if modifiers & UInt32(controlKey) != 0 { flags.insert(.control) }
-    if modifiers & UInt32(shiftKey) != 0 { flags.insert(.shift) }
-    return flags
-  }
-
   var isValid: Bool {
     guard !displayKey.isEmpty else { return false }
     if HotkeyCombination.bareAllowedKeyCodes.contains(keyCode) { return true }

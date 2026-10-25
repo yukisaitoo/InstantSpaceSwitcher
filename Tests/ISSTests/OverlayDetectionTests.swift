@@ -3,14 +3,7 @@ import XCTest
 
 // Tests the App Exposé / Mission Control heuristic in ISS.c against window lists
 // shaped like CGWindowListCopyWindowInfo output. The window counts come from real
-// captures on macOS 26.2 with one and two displays. The C functions aren't in
-// ISS.h, so they're bound by name.
-
-@_silgen_name("iss_is_expose_detected_in_window_list")
-private func iss_is_expose_detected_in_window_list(_ windowList: CFArray) -> Bool
-
-@_silgen_name("iss_is_mission_control_detected_in_window_list")
-private func iss_is_mission_control_detected_in_window_list(_ windowList: CFArray) -> Bool
+// captures on macOS 26.2 with one and two displays.
 
 /// The layer of the Dock's always-present desktop windows, one per display.
 private let wallpaperLayer = -2147483624

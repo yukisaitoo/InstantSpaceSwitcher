@@ -1,6 +1,7 @@
 #ifndef ISS_H
 #define ISS_H
 
+#include <CoreFoundation/CoreFoundation.h>
 #include <stdbool.h>
 
 /** @brief Initialize resources
@@ -18,27 +19,11 @@ typedef enum {
 } ISSDirection;
 
 /**
- * @brief Describes the current space state for the active display.
- */
-typedef struct {
-    unsigned int currentIndex; /**< Zero-based index of the active space */
-    unsigned int spaceCount;   /**< Total number of user-visible spaces */
-    char displayID[128];       /**< UUID string of the display */
-} ISSSpaceInfo;
-
-/**
  * @brief Performs the space switch if the requested move is within bounds.
  * @param direction The direction to switch spaces towards
  * @return true if the switch was posted, false if blocked by bounds or errors
  */
 bool iss_switch(ISSDirection direction);
-
-/**
- * @brief Retrieves the current space info for the active menu-bar display.
- * @param info Output pointer that receives the info struct.
- * @return true on success, false if unavailable (e.g. API failure)
- */
-bool iss_get_menubar_space_info(ISSSpaceInfo *info);
 
 /**
  * @brief Enables or disables interception of trackpad horizontal swipe gestures.
@@ -74,25 +59,17 @@ void iss_reset_predictions(void);
  */
 bool iss_is_mission_control_active(void);
 
+/** @brief Returns true when a CGWindowListCopyWindowInfo list looks like App Exposé. */
+bool iss_is_expose_detected_in_window_list(CFArrayRef windowList);
+
+/** @brief Returns true when a CGWindowListCopyWindowInfo list looks like Mission Control. */
+bool iss_is_mission_control_detected_in_window_list(CFArrayRef windowList);
+
 /**
  * @brief Enables or disables experimental overlay detection.
  * When disabled, Mission Control and App Exposé are always reported as inactive.
  * @param enabled true to enable detection, false to disable.
  */
 void iss_set_overlay_detection_enabled(bool enabled);
-
-/**
- * @brief Sets the gesture speed for switches, from hotkeys and swipes alike.
- * @param speed The velocity value for the gesture
- */
-void iss_set_gesture_speed(double speed);
-
-/**
- * @brief Sets the gesture speed used when a switch lands on the first
- * space. Full-speed landings there can leave floating overlay windows
- * (e.g. FaceTime PiP) detached until the next transition.
- * @param speed The velocity value for first-space landings (default 160).
- */
-void iss_set_edge_gesture_speed(double speed);
 
 #endif /* ISS_H */

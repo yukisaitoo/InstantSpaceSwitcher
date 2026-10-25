@@ -19,7 +19,6 @@ final class ShortcutRecorderControl: NSView {
     didSet {
       needsDisplay = true
       if isRecording {
-        keyPressed = false
         HotkeyManager.shared.unregisterAll()
         startEventTapRecording()
         Self.activeRecorder = self
@@ -32,8 +31,6 @@ final class ShortcutRecorderControl: NSView {
       }
     }
   }
-
-  private var keyPressed = false
 
   var currentShortcut: HotkeyCombination? {
     didSet {
@@ -65,13 +62,6 @@ final class ShortcutRecorderControl: NSView {
   }
 
   private func handleKeyEvent(_ event: NSEvent) {
-    guard !keyPressed else {
-      NSSound.beep()
-      return
-    }
-
-    keyPressed = true
-
     if event.keyCode == UInt16(kVK_Escape) {
       isRecording = false
       return
@@ -79,7 +69,6 @@ final class ShortcutRecorderControl: NSView {
 
     guard let combination = HotkeyCombination.from(event: event), combination.isValid else {
       NSSound.beep()
-      keyPressed = false
       return
     }
 
