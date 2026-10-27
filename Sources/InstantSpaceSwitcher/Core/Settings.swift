@@ -1,7 +1,7 @@
 import Foundation
 
 enum Settings {
-  private enum Key {
+  enum Key {
     static let swipeOverride = "swipeOverride"
     static let overlayDetectionEnabled = "overlayDetectionEnabled"
     static let showOSD = "showOSD"
@@ -9,6 +9,7 @@ enum Settings {
     static let showOSDInMissionControl = "showOSDInMissionControl"
   }
 
+  static let defaultOverlayDetectionEnabled = true
   static let defaultOSDDurationMs = 500
 
   private static var defaults: UserDefaults { .standard }
@@ -19,7 +20,7 @@ enum Settings {
   }
 
   static var overlayDetectionEnabled: Bool {
-    get { defaults.object(forKey: Key.overlayDetectionEnabled) as? Bool ?? true }
+    get { defaults.object(forKey: Key.overlayDetectionEnabled) as? Bool ?? defaultOverlayDetectionEnabled }
     set { defaults.set(newValue, forKey: Key.overlayDetectionEnabled) }
   }
 

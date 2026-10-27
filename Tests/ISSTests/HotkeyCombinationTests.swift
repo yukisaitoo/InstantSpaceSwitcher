@@ -2,17 +2,10 @@ import Carbon
 @testable import InstantSpaceSwitcher
 import XCTest
 
+@MainActor
 final class HotkeyCombinationTests: XCTestCase {
-  private func shortcut(_ modifiers: Int, key: Int = kVK_ANSI_1, label: String = "1") -> HotkeyCombination {
-    HotkeyCombination(keyCode: UInt32(key), modifiers: UInt32(modifiers), displayKey: label)
-  }
-
-  func testConflictIgnoresLabels() {
-    XCTAssertTrue(shortcut(cmdKey).conflicts(with: shortcut(cmdKey, label: "&")))
-  }
-
-  func testDifferentModifiersDoNotConflict() {
-    XCTAssertFalse(shortcut(cmdKey).conflicts(with: shortcut(cmdKey | controlKey)))
+  private func shortcut(_ modifiers: Int, key: Int = kVK_ANSI_1) -> HotkeyCombination {
+    HotkeyCombination(keyCode: UInt32(key), modifiers: UInt32(modifiers))
   }
 
   func testOptionOnlyShortcutsAreInvalid() {
@@ -22,12 +15,22 @@ final class HotkeyCombinationTests: XCTestCase {
   }
 
   func testBareFunctionKeyIsValid() {
-    XCTAssertTrue(shortcut(0, key: kVK_F5, label: "F5").isValid)
+    XCTAssertTrue(shortcut(0, key: kVK_F5).isValid)
     XCTAssertFalse(shortcut(0).isValid)
   }
 
   func testDisplayString() {
     XCTAssertEqual(HotkeyCombination.defaultLeft.displayString, "⌃⌥⌘←")
+  }
+
+  func testKeypadKeysLookDifferentFromMainRow() {
+    XCTAssertNotEqual(shortcut(cmdKey, key: kVK_ANSI_Keypad1).keyLabel, shortcut(cmdKey).keyLabel)
+  }
+
+  func testSystemShortcutsIgnoreTheFnFlag() {
+    // How macOS reports ⌃← ("Move left a space")
+    let system = HotkeyCombination.systemShortcut(keyCode: kVK_LeftArrow, modifiers: 0x21000)
+    XCTAssertEqual(system, shortcut(controlKey, key: kVK_LeftArrow))
   }
 
   func testShortcutSavedByOlderVersionsStillDecodes() throws {
@@ -48,7 +51,7 @@ final class HotkeyCombinationTests: XCTestCase {
 
   func testHotkeyCanBeSavedAndLoaded() {
     withTemporaryDefaults { defaults in
-      let combination = shortcut(cmdKey, key: kVK_ANSI_A, label: "A")
+      let combination = shortcut(cmdKey, key: kVK_ANSI_A)
       HotkeyStore(defaults: defaults).update(combination, for: .right)
 
       XCTAssertEqual(HotkeyStore(defaults: defaults).combination(for: .right), combination)

@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Every path below is relative to the repo root, wherever this script is run from
+cd "$(dirname "$0")/.."
+
 CLEAN=false
 INSTALL=true
 BUILD_CONFIG="release"
@@ -51,7 +54,7 @@ fi
 
 if [[ "$CLEAN" == true ]]; then
   echo "Cleaning build directory..."
-  rm -rf "${BUILD_DIR}"
+  rm -rf "${BUILD_DIR:?}"
 fi
 
 APP_BUNDLE="${BUILD_DIR}/${PRODUCT_NAME}.app"
@@ -63,7 +66,7 @@ BIN_PATH=$(swift build -c "${BUILD_CONFIG}" --arch arm64 --build-path "${BUILD_D
 echo ""
 echo "Bundling..."
 # Start from an empty bundle so files from older builds don't end up in this one.
-rm -rf "${APP_BUNDLE}"
+rm -rf "${APP_BUNDLE:?}"
 mkdir -p "${APP_BUNDLE}/Contents/MacOS"
 cp "${BIN_PATH}/${PRODUCT_NAME}" "${APP_BUNDLE}/Contents/MacOS/"
 cp Info.plist "${APP_BUNDLE}/Contents/"
@@ -117,8 +120,9 @@ if [[ "$INSTALL" == true ]]; then
 
   # Delete first: ditto merges into an existing folder, which would leave
   # files from older builds inside the installed app.
-  rm -rf "${INSTALL_PATH}"
+  rm -rf "${INSTALL_PATH:?}"
   ditto "${APP_BUNDLE}" "${INSTALL_PATH}"
   echo "  Installed. Launching..."
-  open "${INSTALL_PATH}"
+  # LaunchServices can briefly still list the copy that just quit, and open then fails with -600
+  open "${INSTALL_PATH}" || { sleep 1; open "${INSTALL_PATH}"; }
 fi

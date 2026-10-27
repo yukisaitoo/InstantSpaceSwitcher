@@ -1,7 +1,20 @@
 import Carbon
+import Combine
 
-final class HotkeyManager {
+final class HotkeyManager: ObservableObject {
   static let shared = HotkeyManager()
+
+  enum Issue: Equatable {
+    case claimedByAnotherApp
+    case refused(OSStatus)
+
+    var message: String {
+      switch self {
+      case .claimedByAnotherApp: return "Another app has claimed this shortcut"
+      case .refused(let status): return "macOS refused this shortcut (error \(status))"
+      }
+    }
+  }
 
   private struct Entry {
     let combination: HotkeyCombination
@@ -9,6 +22,9 @@ final class HotkeyManager {
   }
 
   private static let signature: OSType = 0x4953_5320 // "ISS "
+
+  /// Shortcuts that are enabled but not working.
+  @Published private(set) var issues: [HotkeyIdentifier: Issue] = [:]
 
   private var entries: [HotkeyIdentifier: Entry] = [:]
   private var refs: [HotkeyIdentifier: EventHotKeyRef] = [:]
@@ -27,10 +43,13 @@ final class HotkeyManager {
     var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
     InstallEventHandler(GetApplicationEventTarget(), { _, event, _ in
       var hotKeyID = EventHotKeyID()
-      GetEventParameter(
+      let status = GetEventParameter(
         event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
         nil, MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID
       )
+      guard status == noErr, hotKeyID.signature == HotkeyManager.signature else {
+        return OSStatus(eventNotHandledErr)
+      }
       HotkeyManager.shared.fire(id: hotKeyID.id)
       return noErr
     }, 1, &eventType, nil, nil)
@@ -49,17 +68,30 @@ final class HotkeyManager {
   func unregister(identifier: HotkeyIdentifier) {
     unregisterCarbon(identifier)
     entries.removeValue(forKey: identifier)
+    issues.removeValue(forKey: identifier)
   }
 
   private func registerCarbon(_ identifier: HotkeyIdentifier) {
     guard let combination = entries[identifier]?.combination else { return }
     var ref: EventHotKeyRef?
     let id = EventHotKeyID(signature: Self.signature, id: identifier.carbonID)
-    let status = RegisterEventHotKey(
-      combination.keyCode, combination.modifiers, id, GetApplicationEventTarget(), 0, &ref
-    )
+    let register = { (options: Int) in
+      RegisterEventHotKey(
+        combination.keyCode, combination.modifiers, id, GetApplicationEventTarget(), OptionBits(options), &ref
+      )
+    }
+    // Exclusive keeps apps that registered the same keys normally (e.g. Rectangle) from also getting them.
+    // macOS keeps its own keys like ⌃← exclusively registered even when they're turned off in System
+    // Settings; a normal registration still works for those.
+    var status = register(kEventHotKeyExclusive)
+    if status == eventHotKeyExistsErr {
+      status = register(0)
+    }
     if status == noErr, let ref {
       refs[identifier] = ref
+      issues.removeValue(forKey: identifier)
+    } else {
+      issues[identifier] = status == eventHotKeyExistsErr ? .claimedByAnotherApp : .refused(status)
     }
   }
 

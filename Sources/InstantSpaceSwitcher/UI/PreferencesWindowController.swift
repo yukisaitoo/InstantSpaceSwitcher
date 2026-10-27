@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 @MainActor
 final class PreferencesWindowController: NSWindowController {
@@ -28,6 +29,8 @@ final class PreferencesWindowController: NSWindowController {
 
     NSApp.activate()
     window.makeKeyAndOrderFront(nil)
+    // Otherwise the window focuses its first control, often a shortcut recorder
+    window.makeFirstResponder(nil)
     // Activation is only a request macOS may decline; this shows the window regardless
     window.orderFrontRegardless()
   }
@@ -44,12 +47,15 @@ private final class PreferencesTabViewController: NSTabViewController {
     super.viewDidLoad()
 
     tabStyle = .toolbar
-    addTab(GeneralSettingsViewController(), label: "General", symbolName: "gearshape")
-    addTab(KeyboardShortcutsViewController(), label: "Keyboard", symbolName: "keyboard")
+    addTab(GeneralSettingsView(), label: "General", symbolName: "gearshape")
+    addTab(KeyboardSettingsView(), label: "Keyboard", symbolName: "keyboard")
   }
 
-  private func addTab(_ viewController: NSViewController, label: String, symbolName: String) {
-    let item = NSTabViewItem(viewController: viewController)
+  private func addTab(_ view: some View, label: String, symbolName: String) {
+    let hostingController = NSHostingController(rootView: view)
+    // Lets the tab controller resize the window to each tab's content
+    hostingController.sizingOptions = .preferredContentSize
+    let item = NSTabViewItem(viewController: hostingController)
     item.label = label
     item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)
     addTabViewItem(item)

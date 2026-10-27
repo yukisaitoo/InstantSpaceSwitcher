@@ -24,12 +24,4 @@ enum Alerts {
       NSWorkspace.shared.open(url)
     }
   }
-
-  static func showWarning(_ message: String, info: String) {
-    let alert = NSAlert()
-    alert.messageText = message
-    alert.informativeText = info
-    alert.alertStyle = .warning
-    alert.runModal()
-  }
 }
