@@ -153,7 +153,7 @@ extension KeyboardShortcutsViewController: NSTableViewDelegate {
     recorder.translatesAutoresizingMaskIntoConstraints = false
     recorder.isEnabled = shortcut.isEnabled
     recorder.onRecordingComplete = { [weak self] combination in
-      self?.handleRecordingResult(combination, for: shortcut.identifier)
+      self?.assign(combination, to: shortcut.identifier)
     }
     cellView.addSubview(recorder)
 
@@ -184,7 +184,7 @@ extension KeyboardShortcutsViewController: NSTableViewDelegate {
   @objc private func resetShortcut(_ sender: NSButton) {
     guard shortcuts.indices.contains(sender.tag) else { return }
     let identifier = shortcuts[sender.tag].identifier
-    store.update(identifier.defaultCombination, for: identifier)
+    assign(identifier.defaultCombination, to: identifier)
   }
 
   @objc private func resetAllShortcuts() {
@@ -198,13 +198,16 @@ extension KeyboardShortcutsViewController: NSTableViewDelegate {
     store.setEnabled(sender.state == .on, for: shortcuts[row].identifier)
   }
 
-  private func handleRecordingResult(_ combination: HotkeyCombination, for identifier: HotkeyIdentifier) {
+  private func assign(_ combination: HotkeyCombination, to identifier: HotkeyIdentifier) {
     if let otherIdentifier = HotkeyIdentifier.allCases.first(where: {
-      $0 != identifier && store.combination(for: $0) == combination
+      $0 != identifier && store.combination(for: $0).conflicts(with: combination)
     }) {
       NSSound.beep()
-      Alerts.showWarning(
-        "Shortcut already in use", info: "This shortcut is already assigned to \(otherIdentifier.displayName).")
+      // Recording results arrive inside the recorder's event tap; a modal alert there would stall input
+      DispatchQueue.main.async {
+        Alerts.showWarning(
+          "Shortcut already in use", info: "This shortcut is already assigned to \(otherIdentifier.displayName).")
+      }
       return
     }
 

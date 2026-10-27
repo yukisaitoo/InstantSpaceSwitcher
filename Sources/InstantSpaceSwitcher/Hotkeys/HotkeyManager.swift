@@ -102,7 +102,10 @@ final class HotkeyManager {
       return false
     }
 
-    DispatchQueue.main.async(execute: entry.handler)
+    // One switch per press; a held key's repeats are swallowed so they don't reach the focused app
+    if event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
+      DispatchQueue.main.async(execute: entry.handler)
+    }
     return true
   }
 

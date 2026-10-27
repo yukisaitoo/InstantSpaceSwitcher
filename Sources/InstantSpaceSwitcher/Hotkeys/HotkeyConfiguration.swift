@@ -52,6 +52,12 @@ struct HotkeyCombination: Codable, Equatable {
     return true
   }
 
+  /// Whether both fire on the same key press. Labels are ignored: the same key
+  /// recorded under another keyboard layout gets a different one.
+  func conflicts(with other: HotkeyCombination) -> Bool {
+    keyCode == other.keyCode && modifiers == other.modifiers && optionKeyKind == other.optionKeyKind
+  }
+
   static let defaultLeft = HotkeyCombination(
     keyCode: UInt32(kVK_LeftArrow),
     modifiers: HotkeyCombination.defaultModifierMask,

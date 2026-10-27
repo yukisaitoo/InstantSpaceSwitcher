@@ -49,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     spaceChangeObserver = NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
     ) { _ in
-      iss_reset_predictions()
+      iss_space_did_change()
     }
   }
 
@@ -158,14 +158,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       return
     }
 
-    HotkeyManager.shared.register(identifier: identifier, combination: combination) { [weak self] in
-      self?.performSpaceSwitch(identifier == .left ? ISSDirectionLeft : ISSDirectionRight)
-    }
-  }
-
-  private func performSpaceSwitch(_ direction: ISSDirection) {
-    if !iss_switch(direction) {
-      NSSound.beep()
+    HotkeyManager.shared.register(identifier: identifier, combination: combination) {
+      // Skipped switches stay silent: people tap around to find where they are
+      _ = iss_switch(identifier == .left ? ISSDirectionLeft : ISSDirectionRight)
     }
   }
 }

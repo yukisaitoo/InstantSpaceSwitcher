@@ -29,6 +29,24 @@ This is a personal fork of [InstantSpaceSwitcher](https://github.com/jurplel/Ins
 - Shortcuts must include ⌘, ⌥ or ⌃ (F1–F12 excepted), so a single key can't take over your keyboard.
 - The shortcut recorder cancels on click, recovers if macOS times it out, and beeps when Accessibility permission is missing.
 - Permission alerts now explain what to do when the app shows as allowed but isn't working.
+- Switching no longer goes the wrong way after closing Mission Control; swipes made while it is still closing are ignored.
+- Switching can no longer overshoot into an empty black space past the first or last desktop space.
+- One switch per key press: holding a shortcut switches once, and nothing happens (no beep) at the first or last space.
+
+## FaceTime call window disappearing (testing)
+
+Switching to the first desktop space can hide FaceTime's floating call window until the next animation. The switch speed into the first space is tunable while this is being tested. Lower is gentler, but too low may stop the switch from landing. It's read on every switch, so there's no need to relaunch.
+
+```sh
+defaults write com.interversehq.InstantSpaceSwitcher firstSpaceFlingVelocity -float 500   # try 2000, 500, 160, 50
+defaults delete com.interversehq.InstantSpaceSwitcher firstSpaceFlingVelocity            # back to the default (9999)
+```
+
+To watch what the app is doing (in zsh, `log` alone is a different built-in command):
+
+```sh
+/usr/bin/log stream --level debug --predicate 'subsystem == "com.interversehq.InstantSpaceSwitcher"'
+```
 
 ## Build from source
 

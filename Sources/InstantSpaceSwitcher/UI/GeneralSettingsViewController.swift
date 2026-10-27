@@ -67,20 +67,32 @@ final class GeneralSettingsViewController: NSViewController {
   }
 
   private func loadSettings() {
-    launchAtLoginCheckbox.state = SMAppService.mainApp.status == .enabled ? .on : .off
+    refreshLaunchAtLogin()
     swipeOverrideCheckbox.state = Settings.swipeOverride ? .on : .off
     overlayDetectionCheckbox.state = Settings.overlayDetectionEnabled ? .on : .off
 
     showOSDCheckbox.state = Settings.showOSD ? .on : .off
     osdDurationPopup.selectItem(at: durationPresets.firstIndex(of: Settings.osdDurationMs) ?? 1)
-    showOSDInMissionControlCheckbox.state = Settings.showOSDInMissionControl ? .on : .off
     updateDependentControls()
+  }
+
+  // Login items can change in System Settings while this view stays loaded
+  override func viewWillAppear() {
+    super.viewWillAppear()
+    refreshLaunchAtLogin()
+  }
+
+  private func refreshLaunchAtLogin() {
+    launchAtLoginCheckbox.state = SMAppService.mainApp.status == .enabled ? .on : .off
   }
 
   private func updateDependentControls() {
     let showOSD = showOSDCheckbox.state == .on
+    let detectsOverlay = overlayDetectionCheckbox.state == .on
     osdDurationPopup.isEnabled = showOSD
-    showOSDInMissionControlCheckbox.isEnabled = showOSD && overlayDetectionCheckbox.state == .on
+    showOSDInMissionControlCheckbox.isEnabled = showOSD && detectsOverlay
+    // Without detection the OSD can't tell Mission Control apart, so it always shows there
+    showOSDInMissionControlCheckbox.state = !detectsOverlay || Settings.showOSDInMissionControl ? .on : .off
   }
 
   @objc private func showOSDChanged(_ sender: NSButton) {
@@ -121,9 +133,12 @@ final class GeneralSettingsViewController: NSViewController {
       }
     } catch {
       NSSound.beep()
-      sender.state = shouldEnable ? .off : .on
       Alerts.showWarning(
         "Failed to \(shouldEnable ? "enable" : "disable") launch at login", info: error.localizedDescription)
+    }
+    refreshLaunchAtLogin()
+    if shouldEnable && SMAppService.mainApp.status == .requiresApproval {
+      SMAppService.openSystemSettingsLoginItems()
     }
   }
 }

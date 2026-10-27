@@ -20,8 +20,9 @@ typedef enum {
 
 /**
  * @brief Performs the space switch if the requested move is within bounds.
+ * Does nothing while a previous switch is still unconfirmed.
  * @param direction The direction to switch spaces towards
- * @return true if the switch was posted, false if blocked by bounds or errors
+ * @return true if the switch was posted, false if it was skipped
  */
 bool iss_switch(ISSDirection direction);
 
@@ -35,23 +36,22 @@ bool iss_switch(ISSDirection direction);
 void iss_set_swipe_override(bool enabled);
 
 /**
- * @brief Callback invoked after any successful space switch.
+ * @brief Callback invoked once a space switch is confirmed by the system.
  * @param newSpaceIndex Zero-based index of the space that was switched to.
  */
 typedef void (*ISSSwitchCallback)(unsigned int newSpaceIndex);
 
 /**
- * @brief Registers a callback invoked after each successful space switch.
+ * @brief Registers a callback invoked once each space switch is confirmed.
  * @param callback Function pointer, or NULL to clear.
  */
 void iss_set_switch_callback(ISSSwitchCallback callback);
 
 /**
- * @brief Resets the predicted space indices so the next bounds check falls back
- * to live CGS data. Call this whenever the active space changes externally
- * (e.g. from activeSpaceDidChangeNotification).
+ * @brief Confirms the in-flight switch, if any, so the next one can be posted.
+ * Call this from activeSpaceDidChangeNotification.
  */
-void iss_reset_predictions(void);
+void iss_space_did_change(void);
 
 /**
  * @brief Returns true when Mission Control is currently active.

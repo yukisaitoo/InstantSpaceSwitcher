@@ -27,6 +27,23 @@ final class HotkeyCombinationTests: XCTestCase {
     XCTAssertFalse(optionOne().matches(eventModifierFlags: rightOptionFlags))
   }
 
+  func testConflictIgnoresLabels() {
+    var relabeled = optionOne()
+    relabeled.displayKey = "&"
+    relabeled.keyEquivalent = "&"
+    XCTAssertTrue(optionOne().conflicts(with: relabeled))
+  }
+
+  func testOptionAndAltGrDoNotConflict() {
+    XCTAssertFalse(optionOne().conflicts(with: optionOne(.right)))
+  }
+
+  func testDifferentModifiersDoNotConflict() {
+    var withControl = optionOne()
+    withControl.modifiers |= UInt32(controlKey)
+    XCTAssertFalse(optionOne().conflicts(with: withControl))
+  }
+
   func testAltGrRequiresRightOption() {
     XCTAssertFalse(optionOne(.right).matches(eventModifierFlags: optionFlags))
     XCTAssertTrue(optionOne(.right).matches(eventModifierFlags: rightOptionFlags))
