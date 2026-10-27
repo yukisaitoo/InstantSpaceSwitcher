@@ -1,108 +1,80 @@
-import AppKit
 import Carbon
 @testable import InstantSpaceSwitcher
 import XCTest
 
 final class HotkeyCombinationTests: XCTestCase {
-  private let optionFlags = UInt64(NSEvent.ModifierFlags.option.rawValue)
-  private let controlOptionFlags = UInt64(NSEvent.ModifierFlags([.control, .option]).rawValue)
-  private let rightOptionFlags = UInt64(NSEvent.ModifierFlags.option.rawValue) | 0x40  // NX_DEVICERALTKEYMASK
-
-  private func optionOne(_ optionKeyKind: OptionKeyKind = .any) -> HotkeyCombination {
-    HotkeyCombination(
-      keyCode: UInt32(kVK_ANSI_1),
-      modifiers: UInt32(optionKey),
-      displayKey: "1",
-      keyEquivalent: "1",
-      optionKeyKind: optionKeyKind
-    )
-  }
-
-  func testGenericOptionDoesNotMatchAdditionalControl() {
-    XCTAssertTrue(optionOne().matches(eventModifierFlags: optionFlags))
-    XCTAssertFalse(optionOne().matches(eventModifierFlags: controlOptionFlags))
-  }
-
-  func testGenericOptionDoesNotMatchRightOption() {
-    XCTAssertFalse(optionOne().matches(eventModifierFlags: rightOptionFlags))
+  private func shortcut(_ modifiers: Int, key: Int = kVK_ANSI_1, label: String = "1") -> HotkeyCombination {
+    HotkeyCombination(keyCode: UInt32(key), modifiers: UInt32(modifiers), displayKey: label)
   }
 
   func testConflictIgnoresLabels() {
-    var relabeled = optionOne()
-    relabeled.displayKey = "&"
-    relabeled.keyEquivalent = "&"
-    XCTAssertTrue(optionOne().conflicts(with: relabeled))
-  }
-
-  func testOptionAndAltGrDoNotConflict() {
-    XCTAssertFalse(optionOne().conflicts(with: optionOne(.right)))
+    XCTAssertTrue(shortcut(cmdKey).conflicts(with: shortcut(cmdKey, label: "&")))
   }
 
   func testDifferentModifiersDoNotConflict() {
-    var withControl = optionOne()
-    withControl.modifiers |= UInt32(controlKey)
-    XCTAssertFalse(optionOne().conflicts(with: withControl))
+    XCTAssertFalse(shortcut(cmdKey).conflicts(with: shortcut(cmdKey | controlKey)))
   }
 
-  func testAltGrRequiresRightOption() {
-    XCTAssertFalse(optionOne(.right).matches(eventModifierFlags: optionFlags))
-    XCTAssertTrue(optionOne(.right).matches(eventModifierFlags: rightOptionFlags))
+  func testOptionOnlyShortcutsAreInvalid() {
+    XCTAssertFalse(shortcut(optionKey).isValid)
+    XCTAssertFalse(shortcut(optionKey | shiftKey).isValid)
+    XCTAssertTrue(shortcut(optionKey | controlKey).isValid)
   }
 
-  func testLegacyDecodedShortcutDefaultsToGenericOption() throws {
+  func testBareFunctionKeyIsValid() {
+    XCTAssertTrue(shortcut(0, key: kVK_F5, label: "F5").isValid)
+    XCTAssertFalse(shortcut(0).isValid)
+  }
+
+  func testDisplayString() {
+    XCTAssertEqual(HotkeyCombination.defaultLeft.displayString, "⌃⌥⌘←")
+  }
+
+  func testShortcutSavedByOlderVersionsStillDecodes() throws {
     let json = """
       {
         "keyCode": \(kVK_ANSI_1),
-        "modifiers": \(optionKey),
+        "modifiers": \(cmdKey),
         "displayKey": "1",
-        "keyEquivalent": "1"
+        "keyEquivalent": "1",
+        "optionKeyKind": "right"
       }
       """
 
     let decoded = try JSONDecoder().decode(HotkeyCombination.self, from: Data(json.utf8))
 
-    XCTAssertEqual(decoded.optionKeyKind, .any)
-    XCTAssertFalse(decoded.matches(eventModifierFlags: rightOptionFlags))
-  }
-
-  func testAltGrDisplayIsDistinctFromGenericOption() {
-    XCTAssertEqual(optionOne().displayString, "⌥1")
-    XCTAssertEqual(optionOne(.right).displayString, "AltGr1")
-    XCTAssertNotEqual(optionOne(), optionOne(.right))
-  }
-
-  func testAltGrSpecificShortcutWinsOverGenericOption() {
-    XCTAssertEqual(
-      HotkeyManager.preferredCombination(
-        from: [optionOne(), optionOne(.right)],
-        keyCode: UInt32(kVK_ANSI_1),
-        eventModifierFlags: rightOptionFlags),
-      optionOne(.right)
-    )
-  }
-
-  func testNoShortcutSelectedForWrongKeyCode() {
-    XCTAssertNil(
-      HotkeyManager.preferredCombination(
-        from: [optionOne()],
-        keyCode: UInt32(kVK_ANSI_2),
-        eventModifierFlags: optionFlags)
-    )
+    XCTAssertEqual(decoded, shortcut(cmdKey))
   }
 
   func testHotkeyCanBeSavedAndLoaded() {
-    let suiteName = "HotkeyStoreTests.\(UUID().uuidString)"
+    withTemporaryDefaults { defaults in
+      let combination = shortcut(cmdKey, key: kVK_ANSI_A, label: "A")
+      HotkeyStore(defaults: defaults).update(combination, for: .right)
+
+      XCTAssertEqual(HotkeyStore(defaults: defaults).combination(for: .right), combination)
+    }
+  }
+
+  func testResetRemovesOverrides() {
+    withTemporaryDefaults { defaults in
+      let store = HotkeyStore(defaults: defaults)
+      store.update(shortcut(cmdKey), for: .left)
+      store.setEnabled(false, for: .right)
+
+      store.resetToDefaults()
+
+      XCTAssertEqual(store.combination(for: .left), .defaultLeft)
+      XCTAssertTrue(store.isEnabled(.right))
+      XCTAssertTrue(defaults.persistentDomain(forName: suiteName)?.isEmpty ?? true)
+    }
+  }
+
+  private var suiteName: String { "HotkeyStoreTests.\(name)" }
+
+  private func withTemporaryDefaults(_ body: (UserDefaults) -> Void) {
     let defaults = UserDefaults(suiteName: suiteName)!
+    defaults.removePersistentDomain(forName: suiteName)
     defer { defaults.removePersistentDomain(forName: suiteName) }
-
-    let combination = HotkeyCombination(
-      keyCode: UInt32(kVK_ANSI_A),
-      modifiers: UInt32(cmdKey),
-      displayKey: "A",
-      keyEquivalent: "a"
-    )
-    HotkeyStore(defaults: defaults).update(combination, for: .right)
-
-    XCTAssertEqual(HotkeyStore(defaults: defaults).combination(for: .right), combination)
+    body(defaults)
   }
 }

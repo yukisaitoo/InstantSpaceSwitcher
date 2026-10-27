@@ -1,5 +1,4 @@
 import AppKit
-import ApplicationServices
 import Combine
 import ISS
 
@@ -8,26 +7,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let hotkeyStore = HotkeyStore.shared
   private lazy var preferencesWindowController = PreferencesWindowController()
   private var cancellables = Set<AnyCancellable>()
-  private var spaceChangeObserver: Any?
 
-  func applicationWillFinishLaunching(_ notification: Notification) {
-    NSAppleEventManager.shared().setEventHandler(
-      self,
-      andSelector: #selector(handleReopen),
-      forEventClass: kCoreEventClass,
-      andEventID: kAEReopenApplication
-    )
-  }
-
-  @objc private func handleReopen(_ event: NSAppleEventDescriptor, withReplyEvent replyEvent: NSAppleEventDescriptor) {
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
     preferencesWindowController.present()
+    return false
   }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     ensureAccessibilityPermission()
 
     if !iss_init() {
-      print("Failed to initialize ISS event tap")
       scheduleIssInitRetry()
     }
 
@@ -46,17 +35,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     setupMainMenu()
     bindHotkeys()
-    spaceChangeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+    NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
     ) { _ in
       iss_space_did_change()
-    }
-  }
-
-  func applicationWillTerminate(_ notification: Notification) {
-    iss_destroy()
-    if let spaceChangeObserver {
-      NSWorkspace.shared.notificationCenter.removeObserver(spaceChangeObserver)
     }
   }
 
@@ -125,14 +107,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 
   @objc private func openAbout(_ sender: Any?) {
-    NSApp.activate(ignoringOtherApps: true)
+    NSApp.activate()
 
     var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
     if let gitHash = Bundle.main.object(forInfoDictionaryKey: "GitCommitHash") as? String {
       options[.version] = gitHash
     }
     NSApp.orderFrontStandardAboutPanel(options: options)
-    NSApp.windows.first(where: { $0.title.contains("About") })?.makeKeyAndOrderFront(nil)
   }
 
   private func bindHotkeys() {
@@ -142,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
       .store(in: &cancellables)
   }
 
-  func reregisterAllHotkeys() {
+  private func reregisterAllHotkeys() {
     for identifier in HotkeyIdentifier.allCases {
       registerHotkey(identifier)
     }
@@ -151,8 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private func registerHotkey(_ identifier: HotkeyIdentifier) {
     let combination = hotkeyStore.combination(for: identifier)
 
-    // combination.isValid guards against modifier-less hotkeys persisted by
-    // older versions, which would swallow a bare key system-wide
+    // Shortcuts saved by older versions may no longer be valid
     guard hotkeyStore.isEnabled(identifier), combination.isValid else {
       HotkeyManager.shared.unregister(identifier: identifier)
       return
@@ -161,6 +141,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     HotkeyManager.shared.register(identifier: identifier, combination: combination) {
       // Skipped switches stay silent: people tap around to find where they are
       _ = iss_switch(identifier == .left ? ISSDirectionLeft : ISSDirectionRight)
+    }
+  }
+}
+
+private extension NSMenuItem {
+  convenience init(
+    title: String, action: Selector?, keyEquivalent: String = "", target: AnyObject? = nil,
+    symbolName: String? = nil
+  ) {
+    self.init(title: title, action: action, keyEquivalent: keyEquivalent)
+    self.target = target
+    if let symbolName {
+      image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
     }
   }
 }

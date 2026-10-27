@@ -4,72 +4,32 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <stdbool.h>
 
-/** @brief Initialize resources
- * @return true on success, false on failure
- */
 bool iss_init(void);
 
-/** @brief Clean up resources */
-void iss_destroy(void);
-
-/** @brief The direction to switch spaces towards */
 typedef enum {
     ISSDirectionLeft = 0,
     ISSDirectionRight = 1
 } ISSDirection;
 
-/**
- * @brief Performs the space switch if the requested move is within bounds.
- * Does nothing while a previous switch is still unconfirmed.
- * @param direction The direction to switch spaces towards
- * @return true if the switch was posted, false if it was skipped
- */
+// Returns false without posting if the move is out of bounds or the previous switch is unconfirmed.
 bool iss_switch(ISSDirection direction);
 
-/**
- * @brief Enables or disables interception of trackpad horizontal swipe gestures.
- *
- * When enabled, native horizontal dock-swipe gestures are suppressed and
- * replaced with instant space switches (no sliding animation).
- * @param enabled true to intercept, false to pass gestures through normally.
- */
+// Replaces native horizontal Dock swipes with instant switches.
 void iss_set_swipe_override(bool enabled);
 
-/**
- * @brief Callback invoked once a space switch is confirmed by the system.
- * @param newSpaceIndex Zero-based index of the space that was switched to.
- */
+// Called once each switch is confirmed; newSpaceIndex is zero-based. Pass NULL to clear.
 typedef void (*ISSSwitchCallback)(unsigned int newSpaceIndex);
-
-/**
- * @brief Registers a callback invoked once each space switch is confirmed.
- * @param callback Function pointer, or NULL to clear.
- */
 void iss_set_switch_callback(ISSSwitchCallback callback);
 
-/**
- * @brief Confirms the in-flight switch, if any, so the next one can be posted.
- * Call this from activeSpaceDidChangeNotification.
- */
+// Call from activeSpaceDidChangeNotification to confirm the in-flight switch.
 void iss_space_did_change(void);
 
-/**
- * @brief Returns true when Mission Control is currently active.
- * Detects more Dock layer-20 windows than layer-18 ones.
- */
+// When disabled, iss_is_mission_control_active and the Exposé check always report inactive.
+void iss_set_overlay_detection_enabled(bool enabled);
 bool iss_is_mission_control_active(void);
 
-/** @brief Returns true when a CGWindowListCopyWindowInfo list looks like App Exposé. */
+// Classify a CGWindowListCopyWindowInfo result. Public so tests can feed fixtures.
 bool iss_is_expose_detected_in_window_list(CFArrayRef windowList);
-
-/** @brief Returns true when a CGWindowListCopyWindowInfo list looks like Mission Control. */
 bool iss_is_mission_control_detected_in_window_list(CFArrayRef windowList);
-
-/**
- * @brief Enables or disables experimental overlay detection.
- * When disabled, Mission Control and App Exposé are always reported as inactive.
- * @param enabled true to enable detection, false to disable.
- */
-void iss_set_overlay_detection_enabled(bool enabled);
 
 #endif /* ISS_H */

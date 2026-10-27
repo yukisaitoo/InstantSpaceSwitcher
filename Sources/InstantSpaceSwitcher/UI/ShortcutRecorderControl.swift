@@ -17,17 +17,32 @@ final class ShortcutRecorderControl: NSView {
 
   var isRecording = false {
     didSet {
+      guard isRecording != oldValue else { return }
       needsDisplay = true
+      HotkeyManager.shared.isPaused = isRecording
       if isRecording {
-        HotkeyManager.shared.unregisterAll()
-        startEventTapRecording()
         Self.activeRecorder = self
+        monitor = NSEvent.addLocalMonitorForEvents(
+          matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+          guard let self else { return event }
+          if event.type == .keyDown {
+            handleKeyEvent(event)
+            return nil
+          }
+          isRecording = false
+          // A click on this recorder only cancels; anywhere else it also does its usual job
+          let clickedSelf = event.window == window && bounds.contains(convert(event.locationInWindow, from: nil))
+          return clickedSelf ? nil : event
+        }
       } else {
-        GlobalEventTapRecorder.shared.stopRecording()
+        if let monitor {
+          NSEvent.removeMonitor(monitor)
+        }
+        monitor = nil
         if Self.activeRecorder === self {
           Self.activeRecorder = nil
         }
-        (NSApp.delegate as? AppDelegate)?.reregisterAllHotkeys()
       }
     }
   }
@@ -40,26 +55,7 @@ final class ShortcutRecorderControl: NSView {
 
   var onRecordingComplete: ((HotkeyCombination) -> Void)?
 
-  override var acceptsFirstResponder: Bool { true }
-  override var canBecomeKeyView: Bool { true }
-
-  private func startEventTapRecording() {
-    let started = GlobalEventTapRecorder.shared.startRecording(
-      onKeyPress: { [weak self] event in
-        self?.handleKeyEvent(event)
-      },
-      onMouseClick: { [weak self] in
-        self?.isRecording = false
-      }
-    )
-    if !started {
-      NSSound.beep()
-      // Deferred: we're inside isRecording's didSet, which hasn't set activeRecorder yet
-      DispatchQueue.main.async { [weak self] in
-        self?.isRecording = false
-      }
-    }
-  }
+  private var monitor: Any?
 
   private func handleKeyEvent(_ event: NSEvent) {
     if event.keyCode == UInt16(kVK_Escape) {
@@ -111,18 +107,6 @@ final class ShortcutRecorderControl: NSView {
 
   override func mouseDown(with event: NSEvent) {
     guard isEnabled else { return }
-
-    if !AXIsProcessTrusted() {
-      Alerts.showAccessibilityPermissionRequired(to: "record keyboard shortcuts")
-      return
-    }
-
-    if let activeRecorder = Self.activeRecorder, activeRecorder !== self {
-      activeRecorder.isRecording = false
-    }
-
-    if !isRecording {
-      isRecording = true
-    }
+    isRecording = true
   }
 }

@@ -3,5 +3,5 @@ build/
 .vscode/
 *.app
 .DS_Store
-.env
 xcuserdata/
+.swiftpm/

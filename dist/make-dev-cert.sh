@@ -12,7 +12,7 @@
 #
 # Usage:
 #   ./dist/make-dev-cert.sh
-#   ./dist/build.sh --install   # picks up the certificate automatically
+#   ./dist/build.sh   # picks up the certificate automatically
 #
 # After the FIRST certificate-signed build, remove the app from
 # System Settings > Privacy & Security > Accessibility with the "-" button
@@ -34,9 +34,9 @@
 
 set -eo pipefail
 
-CERT_NAME="${CERT_NAME:-InstantSpaceSwitcher Dev}"
-KEYCHAIN="${KEYCHAIN:-${HOME}/Library/Keychains/login.keychain-db}"   # override only for testing
-SKIP_TRUST="${SKIP_TRUST:-0}"                                        # 1 = skip trust step (testing)
+# Must match DEV_CERT_NAME in build.sh
+CERT_NAME="InstantSpaceSwitcher Dev"
+KEYCHAIN="${HOME}/Library/Keychains/login.keychain-db"
 OPENSSL=/usr/bin/openssl
 
 if security find-certificate -c "${CERT_NAME}" "${KEYCHAIN}" >/dev/null 2>&1; then
@@ -52,7 +52,7 @@ if security find-certificate -c "${CERT_NAME}" "${KEYCHAIN}" >/dev/null 2>&1; th
     echo "  rm /tmp/iss-dev.pem"
   fi
   echo ""
-  echo "Build with: ./dist/build.sh --install (the certificate is detected automatically)"
+  echo "Build with: ./dist/build.sh (the certificate is detected automatically)"
   exit 0
 fi
 
@@ -85,23 +85,19 @@ fi
 echo "Importing into keychain $(basename "${KEYCHAIN}")..."
 security import "${TMP}/dev.p12" -k "${KEYCHAIN}" -P "${P12_PW}" -T /usr/bin/codesign >/dev/null
 
-if [[ "${SKIP_TRUST}" == "1" ]]; then
-  echo "Skipping trust step (SKIP_TRUST=1)."
-else
-  echo "Marking it trusted for code signing (macOS will ask for your password)..."
-  if ! security add-trusted-cert -r trustRoot -p codeSign -k "${KEYCHAIN}" "${TMP}/cert.pem"; then
-    echo ""
-    echo "ERROR: trust step failed or was cancelled. codesign refuses untrusted certificates"
-    echo "(\"no identity found\"), so builds will fail until this is done. The certificate is"
-    echo "already in your keychain; re-run this script and it will print the retry command."
-    exit 1
-  fi
+echo "Marking it trusted for code signing (macOS will ask for your password)..."
+if ! security add-trusted-cert -r trustRoot -p codeSign -k "${KEYCHAIN}" "${TMP}/cert.pem"; then
+  echo ""
+  echo "ERROR: trust step failed or was cancelled. codesign refuses untrusted certificates"
+  echo "(\"no identity found\"), so builds will fail until this is done. The certificate is"
+  echo "already in your keychain; re-run this script and it will print the retry command."
+  exit 1
 fi
 
 echo ""
 echo "Code-signing identities now available:"
 security find-identity -v -p codesigning
 echo ""
-echo "Next: ./dist/build.sh --install (the certificate is detected automatically)"
+echo "Next: ./dist/build.sh (the certificate is detected automatically)"
 echo "If an older build already had Accessibility permission, remove it there once (\"-\" button) and grant again."
 echo "The first build will ask whether codesign may use the key; choose \"Always Allow\" for silent builds."

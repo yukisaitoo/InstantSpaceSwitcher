@@ -2,23 +2,19 @@
 #include "cgs_private.h"
 #include "event_serialize.h"
 
-#include <ApplicationServices/ApplicationServices.h>
 #include <mach/mach_time.h>
 #include <os/log.h>
-#include <stdbool.h>
 #include <string.h>
 
 // The space state of the display under the cursor
 typedef struct {
-    unsigned int currentIndex; // Zero-based index of the active space
-    unsigned int spaceCount;   // Total number of user-visible spaces
+    unsigned int currentIndex;
+    unsigned int spaceCount;
 } ISSSpaceInfo;
 
-// Stream with: /usr/bin/log stream --level debug --predicate 'subsystem == "com.interversehq.InstantSpaceSwitcher"'
 static os_log_t swipeLog = NULL;
 
 static CFMachPortRef globalTap = NULL;
-static CFRunLoopSourceRef globalSource = NULL;
 
 static bool overlayDetectionEnabled = false;
 
@@ -29,20 +25,18 @@ static bool swipeFired = false;
 // Our macOS 27 swipes re-enter the tap with sourcePid == 0, so they carry this tag instead
 static const int64_t kSyntheticEventTag = 0x495353; // "ISS"
 
-// A swipe whose ended event never reached us would otherwise swallow every later
-// trackpad gesture
+// A swipe whose ended event never reached us would otherwise swallow every later trackpad gesture
 static const CFTimeInterval kStaleSwipeTimeout = 1.0;
 static CFAbsoluteTime lastSwipeEventTime = 0;
 
 static ISSSwitchCallback switchCallback = NULL;
 
-static const CFStringRef kSwipeScrollDirectionChanged = CFSTR("SwipeScrollDirectionDidChangeNotification");
-
 // A switch is confirmed by a space-change notification ~50ms after we post it,
 // and only then does CGS report the new space. Switching again before that
 // computes from the old space and can overshoot past the first or last one,
 // which on macOS 27 shows a black space until the Dock bounces back. So only
-// one switch is in flight; one never confirmed was dropped by the Dock.
+// one switch is in flight; one still unconfirmed after kPendingSwitchTimeout is
+// assumed dropped by the Dock.
 static const CFTimeInterval kPendingSwitchTimeout = 0.5;
 static CFAbsoluteTime pendingSwitchTime = 0; // 0 when no switch is in flight
 
@@ -162,10 +156,7 @@ static bool load_space_info(ISSSpaceInfo *info) {
 
     CFStringRef displayIdentifier = copy_cursor_display_uuid();
 
-    CFArrayRef displays = CGSCopyManagedDisplaySpaces(connection, displayIdentifier);
-    if (!displays && displayIdentifier) {
-        displays = CGSCopyManagedDisplaySpaces(connection, NULL);
-    }
+    CFArrayRef displays = CGSCopyManagedDisplaySpaces(connection);
 
     bool success = false;
     if (displays) {
@@ -179,27 +170,18 @@ static bool load_space_info(ISSSpaceInfo *info) {
     return success;
 }
 
-static bool get_dock_window_layer(CFDictionaryRef info, int *outLayer) {
-    CFStringRef owner = CFDictionaryGetValue(info, CFSTR("kCGWindowOwnerName"));
-    if (!owner || !CFEqual(owner, CFSTR("Dock"))) {
-        return false;
-    }
-    *outLayer = 0;
-    CFNumberRef layerNumber = CFDictionaryGetValue(info, CFSTR("kCGWindowLayer"));
-    if (layerNumber) {
-        CFNumberGetValue(layerNumber, kCFNumberIntType, outLayer);
-    }
-    return true;
-}
-
 static void scan_dock_window_list(CFArrayRef windowList,
                                   int *outLayer18Count,
                                   int *outLayer20Count) {
     *outLayer18Count = 0;
     *outLayer20Count = 0;
     for (CFIndex i = 0; i < CFArrayGetCount(windowList); i++) {
+        CFDictionaryRef info = CFArrayGetValueAtIndex(windowList, i);
+        CFStringRef owner = CFDictionaryGetValue(info, kCGWindowOwnerName);
+        CFNumberRef layerNumber = CFDictionaryGetValue(info, kCGWindowLayer);
         int layer = 0;
-        if (!get_dock_window_layer(CFArrayGetValueAtIndex(windowList, i), &layer)) {
+        if (!owner || !CFEqual(owner, CFSTR("Dock")) || !layerNumber ||
+            !CFNumberGetValue(layerNumber, kCFNumberIntType, &layer)) {
             continue;
         }
         if (layer == 18) {
@@ -244,12 +226,13 @@ bool iss_is_mission_control_active(void) {
 }
 
 // Rounds to the smallest non-zero 16.16 fixed-point value: it keeps the direction but
-// leaves nothing to animate, and the velocity still commits the switch.
+// leaves nothing to animate, and the velocity still commits the switch. Full progress
+// switches too, but the previous space flashes before it lands.
 static const double kMinimalSwipeProgress = 0.000016;
 
 // The fling on the ended phase is what commits the switch on macOS 27. The payload
 // field is 16.16 fixed point, which caps it at kMaxFlingVelocity.
-static const double kModernFlingVelocity = 9999.0;
+static const double kFlingVelocity = 9999.0;
 static const double kMaxFlingVelocity = 32767.0;
 
 // Landing on the first space at full fling makes the Dock rubber-band, which
@@ -258,7 +241,7 @@ static const double kMaxFlingVelocity = 32767.0;
 static double first_space_fling_velocity(void) {
     CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication);
     CFNumberRef value = CFPreferencesCopyAppValue(CFSTR("firstSpaceFlingVelocity"), kCFPreferencesCurrentApplication);
-    double velocity = kModernFlingVelocity;
+    double velocity = kFlingVelocity;
     if (value) {
         double configured = 0;
         // Zero or negative never commits a switch; above the max overflows the payload
@@ -273,6 +256,8 @@ static double first_space_fling_velocity(void) {
 
 // Cached natural scrolling preference; -1 means re-read it
 static int naturalScrolling = -1;
+
+static const CFStringRef kSwipeScrollDirectionChanged = CFSTR("SwipeScrollDirectionDidChangeNotification");
 
 // Posted by System Settings when the natural scrolling checkbox is toggled
 static void natural_scrolling_changed(CFNotificationCenterRef center, void *observer,
@@ -289,7 +274,7 @@ static void natural_scrolling_changed(CFNotificationCenterRef center, void *obse
 
 // On macOS 27 right is negative, and the Dock reads the posted sign through the
 // natural scrolling preference, so it flips again with natural scrolling off.
-static double modern_swipe_sign(ISSDirection direction) {
+static double swipe_sign(ISSDirection direction) {
     if (naturalScrolling < 0) {
         Boolean valid = false;
         Boolean natural = CFPreferencesGetAppBooleanValue(CFSTR("com.apple.swipescrolldirection"),
@@ -313,13 +298,12 @@ static CGEventRef create_dock_swipe_event(CGSGesturePhase phase) {
 }
 
 static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction, double velocity) {
-    const double sign = modern_swipe_sign(direction);
+    const double sign = swipe_sign(direction);
 
     CGEventRef event = create_dock_swipe_event(phase);
     if (!event) {
         return false;
     }
-    // Full progress switches too, but the previous space flashes before it lands.
     CGEventSetDoubleValueField(event, kCGEventGestureSwipeProgress, sign * kMinimalSwipeProgress);
     // Fields a real trackpad swipe carries (from FasterSwiper's traces).
     CGEventSetIntegerValueField(event, kCGEventGesturePhaseAlias, phase);
@@ -333,7 +317,7 @@ static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction, doubl
         CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityX, sign * velocity);
     }
 
-    CGEventRef augmented = iss_augment_dock_swipe_event(event);
+    CGEventRef augmented = iss_create_augmented_dock_swipe_event(event);
     CFRelease(event);
     if (!augmented) {
         return false;
@@ -361,8 +345,8 @@ static bool perform_switch_gesture(ISSDirection direction, double velocity) {
         && post_dock_swipe(kCGSGesturePhaseEnded,   direction, velocity);
 }
 
-static bool should_block_switch(const ISSSpaceInfo *info, unsigned int current, ISSDirection direction) {
-    return direction == ISSDirectionLeft ? current == 0 : current + 1 >= info->spaceCount;
+static bool is_at_edge(const ISSSpaceInfo *info, ISSDirection direction) {
+    return direction == ISSDirectionLeft ? info->currentIndex == 0 : info->currentIndex + 1 >= info->spaceCount;
 }
 
 bool iss_switch(ISSDirection direction) {
@@ -384,13 +368,13 @@ bool iss_switch(ISSDirection direction) {
         os_log_error(swipeLog, "switch %{public}s: no space info", name);
         return false;
     }
-    if (should_block_switch(&info, info.currentIndex, direction)) {
+    if (is_at_edge(&info, direction)) {
         os_log_debug(swipeLog, "switch %{public}s: at edge (cgs=%u count=%u)", name, info.currentIndex, info.spaceCount);
         return false;
     }
 
     unsigned int target = direction == ISSDirectionLeft ? info.currentIndex - 1 : info.currentIndex + 1;
-    double velocity = target == 0 ? first_space_fling_velocity() : kModernFlingVelocity;
+    double velocity = target == 0 ? first_space_fling_velocity() : kFlingVelocity;
     os_log_debug(swipeLog, "switch %{public}s: cgs=%u target=%u count=%u velocity=%.0f",
                  name, info.currentIndex, target, info.spaceCount, velocity);
     if (!perform_switch_gesture(direction, velocity)) {
@@ -410,6 +394,7 @@ static bool is_gesture_event(CGSEventType eventType) {
     return eventType == kCGSEventDockControl || eventType == kCGSEventGesture;
 }
 
+// A physical swipe's sign ignores natural scrolling; only the posted swipe is flipped (see swipe_sign)
 static void fire_once(double value) {
     if (swipeFired || value == 0.0) {
         return;
@@ -474,9 +459,7 @@ static CGEventRef event_tap_callback(CGEventTapProxy proxy, CGEventType type,
     (void)refcon;
 
     if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
-        if (globalTap) {
-            CGEventTapEnable(globalTap, true);
-        }
+        CGEventTapEnable(globalTap, true);
         // The swipe's ended event may have slipped past while disabled
         reset_swipe_state();
         return event;
@@ -491,8 +474,7 @@ static CGEventRef event_tap_callback(CGEventTapProxy proxy, CGEventType type,
         return event;
     }
 
-    // Pass through synthetic events (non-HID source). Real gesture events
-    // from the trackpad have sourcePid == 0 (HID kernel).
+    // Real trackpad gestures come from the HID system (sourcePid 0)
     pid_t sourcePid = (pid_t)CGEventGetIntegerValueField(event, kCGEventSourceUnixProcessID);
     if (sourcePid != 0) {
         return event;
@@ -516,11 +498,7 @@ bool iss_init(void) {
         swipeLog = os_log_create("com.interversehq.InstantSpaceSwitcher", "swipe");
     }
 
-    // The key-event bits look vestigial (the callback never reads key events),
-    // but removing them stops gesture events from being delivered to the tap,
-    // so they stay. Verified empirically on macOS 26.
-    CGEventMask mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp)
-        | CGEventMaskBit(kCGSEventGesture) | CGEventMaskBit(kCGSEventDockControl);
+    CGEventMask mask = CGEventMaskBit(kCGSEventGesture) | CGEventMaskBit(kCGSEventDockControl);
     globalTap = CGEventTapCreate(
         kCGSessionEventTap,
         kCGHeadInsertEventTap,
@@ -533,13 +511,14 @@ bool iss_init(void) {
         return false;
     }
 
-    globalSource = CFMachPortCreateRunLoopSource(NULL, globalTap, 0);
-    if (!globalSource) {
+    CFRunLoopSourceRef source = CFMachPortCreateRunLoopSource(NULL, globalTap, 0);
+    if (!source) {
         CFRelease(globalTap);
         globalTap = NULL;
         return false;
     }
-    CFRunLoopAddSource(CFRunLoopGetMain(), globalSource, kCFRunLoopCommonModes);
+    CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
+    CFRelease(source);
     CGEventTapEnable(globalTap, true);
 
     naturalScrolling = -1;
@@ -548,22 +527,6 @@ bool iss_init(void) {
                                     kSwipeScrollDirectionChanged,
                                     NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
     return true;
-}
-
-void iss_destroy(void) {
-    pendingSwitchTime = 0;
-    if (globalTap) {
-        CFNotificationCenterRemoveObserver(CFNotificationCenterGetDistributedCenter(),
-                                           &naturalScrolling, kSwipeScrollDirectionChanged, NULL);
-        CGEventTapEnable(globalTap, false);
-        if (globalSource) {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), globalSource, kCFRunLoopCommonModes);
-            CFRelease(globalSource);
-            globalSource = NULL;
-        }
-        CFRelease(globalTap);
-        globalTap = NULL;
-    }
 }
 
 void iss_set_swipe_override(bool enabled) {

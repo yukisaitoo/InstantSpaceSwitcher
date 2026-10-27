@@ -1,11 +1,6 @@
 import AppKit
 import Combine
 
-private class RecordingView: NSView {
-  override var acceptsFirstResponder: Bool { true }
-  override func becomeFirstResponder() -> Bool { true }
-}
-
 final class KeyboardShortcutsViewController: NSViewController {
   private enum Column {
     static let enabled = NSUserInterfaceItemIdentifier("enabled")
@@ -13,28 +8,20 @@ final class KeyboardShortcutsViewController: NSViewController {
     static let shortcut = NSUserInterfaceItemIdentifier("shortcut")
   }
 
-  private struct ShortcutRow {
-    let identifier: HotkeyIdentifier
-    var combination: HotkeyCombination
-    var isEnabled: Bool
-  }
-
   private let store = HotkeyStore.shared
   private var cancellables = Set<AnyCancellable>()
-  private var shortcuts: [ShortcutRow] = []
 
   private let tableView = NSTableView()
   private let scrollView = NSScrollView()
 
   override func loadView() {
-    view = RecordingView(frame: NSRect(x: 0, y: 0, width: 500, height: 300))
+    view = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 300))
   }
 
   override func viewDidLoad() {
     super.viewDidLoad()
 
     setupTableView()
-    loadShortcuts()
     bindStore()
   }
 
@@ -80,44 +67,37 @@ final class KeyboardShortcutsViewController: NSViewController {
     tableView.addTableColumn(column)
   }
 
-  private func loadShortcuts() {
-    shortcuts = HotkeyIdentifier.allCases.map {
-      ShortcutRow(identifier: $0, combination: store.combination(for: $0), isEnabled: store.isEnabled($0))
-    }
-    tableView.reloadData()
-  }
-
   private func bindStore() {
     store.$hotkeys.combineLatest(store.$enabledStates)
       .receive(on: RunLoop.main)
-      .sink { [weak self] _ in self?.loadShortcuts() }
+      .sink { [weak self] _ in self?.tableView.reloadData() }
       .store(in: &cancellables)
   }
 }
 
 extension KeyboardShortcutsViewController: NSTableViewDataSource {
   func numberOfRows(in tableView: NSTableView) -> Int {
-    shortcuts.count
+    HotkeyIdentifier.allCases.count
   }
 }
 
 extension KeyboardShortcutsViewController: NSTableViewDelegate {
   func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
     guard let column = tableColumn?.identifier else { return nil }
-    let shortcut = shortcuts[row]
+    let identifier = HotkeyIdentifier.allCases[row]
 
     switch column {
-    case Column.enabled: return makeEnabledCell(for: shortcut, row: row)
-    case Column.name: return makeNameCell(for: shortcut)
-    case Column.shortcut: return makeShortcutCell(for: shortcut, row: row)
+    case Column.enabled: return makeEnabledCell(for: identifier, row: row)
+    case Column.name: return makeNameCell(for: identifier)
+    case Column.shortcut: return makeShortcutCell(for: identifier)
     default: return nil
     }
   }
 
-  private func makeEnabledCell(for shortcut: ShortcutRow, row: Int) -> NSView {
+  private func makeEnabledCell(for identifier: HotkeyIdentifier, row: Int) -> NSView {
     let cellView = NSTableCellView()
     let checkbox = NSButton(checkboxWithTitle: "", target: self, action: #selector(toggleEnabled(_:)))
-    checkbox.state = shortcut.isEnabled ? .on : .off
+    checkbox.state = store.isEnabled(identifier) ? .on : .off
     checkbox.tag = row
     checkbox.translatesAutoresizingMaskIntoConstraints = false
     cellView.addSubview(checkbox)
@@ -129,11 +109,11 @@ extension KeyboardShortcutsViewController: NSTableViewDelegate {
     return cellView
   }
 
-  private func makeNameCell(for shortcut: ShortcutRow) -> NSView {
+  private func makeNameCell(for identifier: HotkeyIdentifier) -> NSView {
     let cellView = NSTableCellView()
-    let textField = NSTextField(labelWithString: shortcut.identifier.displayName)
+    let textField = NSTextField(labelWithString: identifier.displayName)
     textField.translatesAutoresizingMaskIntoConstraints = false
-    textField.textColor = shortcut.isEnabled ? .labelColor : .disabledControlTextColor
+    textField.textColor = store.isEnabled(identifier) ? .labelColor : .disabledControlTextColor
     cellView.addSubview(textField)
     cellView.textField = textField
 
@@ -145,46 +125,24 @@ extension KeyboardShortcutsViewController: NSTableViewDelegate {
     return cellView
   }
 
-  private func makeShortcutCell(for shortcut: ShortcutRow, row: Int) -> NSView {
+  private func makeShortcutCell(for identifier: HotkeyIdentifier) -> NSView {
     let cellView = NSView()
-
     let recorder = ShortcutRecorderControl()
-    recorder.currentShortcut = shortcut.combination
+    recorder.currentShortcut = store.combination(for: identifier)
     recorder.translatesAutoresizingMaskIntoConstraints = false
-    recorder.isEnabled = shortcut.isEnabled
+    recorder.isEnabled = store.isEnabled(identifier)
     recorder.onRecordingComplete = { [weak self] combination in
-      self?.assign(combination, to: shortcut.identifier)
+      self?.assign(combination, to: identifier)
     }
     cellView.addSubview(recorder)
-
-    let resetButton = NSButton(
-      image: NSImage(systemSymbolName: "arrow.counterclockwise", accessibilityDescription: "Reset")!,
-      target: self, action: #selector(resetShortcut(_:)))
-    resetButton.bezelStyle = .rounded
-    resetButton.isBordered = false
-    resetButton.tag = row
-    resetButton.isEnabled = shortcut.isEnabled
-    resetButton.translatesAutoresizingMaskIntoConstraints = false
-    cellView.addSubview(resetButton)
 
     NSLayoutConstraint.activate([
       recorder.leadingAnchor.constraint(equalTo: cellView.leadingAnchor, constant: 4),
       recorder.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
       recorder.widthAnchor.constraint(equalToConstant: 150),
-      recorder.heightAnchor.constraint(equalToConstant: 22),
-
-      resetButton.leadingAnchor.constraint(equalTo: recorder.trailingAnchor, constant: 8),
-      resetButton.centerYAnchor.constraint(equalTo: cellView.centerYAnchor),
-      resetButton.widthAnchor.constraint(equalToConstant: 24),
-      resetButton.heightAnchor.constraint(equalToConstant: 24)
+      recorder.heightAnchor.constraint(equalToConstant: 22)
     ])
     return cellView
-  }
-
-  @objc private func resetShortcut(_ sender: NSButton) {
-    guard shortcuts.indices.contains(sender.tag) else { return }
-    let identifier = shortcuts[sender.tag].identifier
-    assign(identifier.defaultCombination, to: identifier)
   }
 
   @objc private func resetAllShortcuts() {
@@ -192,10 +150,7 @@ extension KeyboardShortcutsViewController: NSTableViewDelegate {
   }
 
   @objc private func toggleEnabled(_ sender: NSButton) {
-    let row = sender.tag
-    guard shortcuts.indices.contains(row) else { return }
-
-    store.setEnabled(sender.state == .on, for: shortcuts[row].identifier)
+    store.setEnabled(sender.state == .on, for: HotkeyIdentifier.allCases[sender.tag])
   }
 
   private func assign(_ combination: HotkeyCombination, to identifier: HotkeyIdentifier) {
@@ -203,7 +158,7 @@ extension KeyboardShortcutsViewController: NSTableViewDelegate {
       $0 != identifier && store.combination(for: $0).conflicts(with: combination)
     }) {
       NSSound.beep()
-      // Recording results arrive inside the recorder's event tap; a modal alert there would stall input
+      // Recording results arrive inside the recorder's key monitor; don't run a modal alert from there
       DispatchQueue.main.async {
         Alerts.showWarning(
           "Shortcut already in use", info: "This shortcut is already assigned to \(otherIdentifier.displayName).")

@@ -1,10 +1,8 @@
 #include "event_serialize.h"
 #include "cgs_private.h"
 
-#include <ApplicationServices/ApplicationServices.h>
 #include <mach/mach_time.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 
 #pragma pack(push, 1)
@@ -55,18 +53,20 @@ _Static_assert(sizeof(IOHIDSystemQueueElementHeader) == 28,
 
 static const uint16_t kIOHIDGestureFlavorDockPrimary = 3;
 
-// Tag of the appended payload: (Type << 14) | Field ID
+// Field ID of the appended IOHID payload
 static const uint16_t kIOHIDPayloadTag = 4205;
 
+enum {
+    kMaxPayloadLength = sizeof(IOHIDSystemQueueElementHeader) + sizeof(IOHIDDockSwipeEventData) +
+                        sizeof(IOHIDVelocityEventData),
+};
+
 static int32_t double_to_fixed1616(double val) {
-    int32_t fixed = (int32_t)(val * 65536.0);
-    if (fixed == 0 && val != 0.0) {
-        return val > 0.0 ? 1 : -1;
-    }
-    return fixed;
+    return (int32_t)(val * 65536.0);
 }
 
-static uint8_t *generate_iohid_payload(CGEventRef event, size_t *out_length) {
+// Writes the payload into a buffer of kMaxPayloadLength zeroed bytes and returns its length.
+static size_t fill_iohid_payload(CGEventRef event, uint8_t *payload) {
     int64_t phase = CGEventGetIntegerValueField(event, kCGEventGesturePhase);
     int64_t motion = CGEventGetIntegerValueField(event, kCGEventGestureSwipeMotion);
     double progress = CGEventGetDoubleValueField(event, kCGEventGestureSwipeProgress);
@@ -77,16 +77,6 @@ static uint8_t *generate_iohid_payload(CGEventRef event, size_t *out_length) {
     int64_t swipe_mask = CGEventGetIntegerValueField(event, kCGEventGestureSwipeMask);
 
     bool include_velocity = (vel_x != 0.0 || vel_y != 0.0 || phase == kCGSGesturePhaseEnded);
-    uint32_t event_count = include_velocity ? 2 : 1;
-    size_t payload_length = sizeof(IOHIDSystemQueueElementHeader) + sizeof(IOHIDDockSwipeEventData);
-    if (include_velocity) {
-        payload_length += sizeof(IOHIDVelocityEventData);
-    }
-
-    uint8_t *payload = calloc(1, payload_length);
-    if (!payload) {
-        return NULL;
-    }
 
     IOHIDSystemQueueElementHeader *header = (IOHIDSystemQueueElementHeader *)payload;
     uint64_t timestamp = CGEventGetTimestamp(event);
@@ -94,9 +84,9 @@ static uint8_t *generate_iohid_payload(CGEventRef event, size_t *out_length) {
         timestamp = mach_absolute_time();
     }
     header->timestamp = timestamp;
-    header->event_count = event_count;
+    header->event_count = include_velocity ? 2 : 1;
 
-    IOHIDDockSwipeEventData *swipe = (IOHIDDockSwipeEventData *)(payload + sizeof(IOHIDSystemQueueElementHeader));
+    IOHIDDockSwipeEventData *swipe = (IOHIDDockSwipeEventData *)(header + 1);
     swipe->base.size = sizeof(IOHIDDockSwipeEventData);
     swipe->base.type = kIOHIDEventTypeDockSwipe;
     swipe->base.options = (uint32_t)((phase & 0xFF) << 24);
@@ -107,71 +97,50 @@ static uint8_t *generate_iohid_payload(CGEventRef event, size_t *out_length) {
     swipe->gesture_flavor = kIOHIDGestureFlavorDockPrimary;
     swipe->swipe_progress = double_to_fixed1616(progress);
 
-    if (include_velocity) {
-        IOHIDVelocityEventData *velocity = (IOHIDVelocityEventData *)(payload + sizeof(IOHIDSystemQueueElementHeader) + sizeof(IOHIDDockSwipeEventData));
-        velocity->base.size = sizeof(IOHIDVelocityEventData);
-        velocity->base.type = kIOHIDEventTypeVelocity;
-        velocity->base.depth = 1;
-        velocity->velocity_x = double_to_fixed1616(vel_x);
-        velocity->velocity_y = double_to_fixed1616(vel_y);
+    if (!include_velocity) {
+        return sizeof(*header) + sizeof(*swipe);
     }
 
-    *out_length = payload_length;
-    return payload;
+    IOHIDVelocityEventData *velocity = (IOHIDVelocityEventData *)(swipe + 1);
+    velocity->base.size = sizeof(IOHIDVelocityEventData);
+    velocity->base.type = kIOHIDEventTypeVelocity;
+    velocity->base.depth = 1;
+    velocity->velocity_x = double_to_fixed1616(vel_x);
+    velocity->velocity_y = double_to_fixed1616(vel_y);
+    return kMaxPayloadLength;
 }
 
-CGEventRef iss_augment_dock_swipe_event(CGEventRef event) {
-    if (!event) {
+CGEventRef iss_create_augmented_dock_swipe_event(CGEventRef event) {
+    CFDataRef original = CGEventCreateData(kCFAllocatorDefault, event);
+    if (!original) {
         return NULL;
     }
 
-    CFDataRef data = CGEventCreateData(kCFAllocatorDefault, event);
+    // Only format version 2 is known (first 4 bytes: 00 00 00 02)
+    static const uint8_t kFormatVersion2[4] = {0, 0, 0, 2};
+    if (CFDataGetLength(original) < 4 || memcmp(CFDataGetBytePtr(original), kFormatVersion2, 4) != 0) {
+        CFRelease(original);
+        return NULL;
+    }
+
+    CFMutableDataRef data = CFDataCreateMutableCopy(kCFAllocatorDefault, 0, original);
+    CFRelease(original);
     if (!data) {
         return NULL;
     }
 
-    const uint8_t *bytes = CFDataGetBytePtr(data);
-    CFIndex length = CFDataGetLength(data);
+    uint8_t payload[kMaxPayloadLength] = {0};
+    size_t payload_length = fill_iohid_payload(event, payload);
 
-    // Only format version 2 is known (first 4 bytes: 00 00 00 02)
-    if (length < 4 || bytes[0] != 0 || bytes[1] != 0 || bytes[2] != 0 || bytes[3] != 2) {
-        CFRelease(data);
-        return NULL;
-    }
+    // The tag is two big-endian 16-bit words: the payload length in bytes, then the field ID
+    const uint8_t tag[4] = {
+        (uint8_t)(payload_length >> 8), (uint8_t)payload_length,
+        (uint8_t)(kIOHIDPayloadTag >> 8), (uint8_t)kIOHIDPayloadTag,
+    };
+    CFDataAppendBytes(data, tag, sizeof(tag));
+    CFDataAppendBytes(data, payload, (CFIndex)payload_length);
 
-    size_t payload_length = 0;
-    uint8_t *payload = generate_iohid_payload(event, &payload_length);
-    if (!payload) {
-        CFRelease(data);
-        return NULL;
-    }
-
-    size_t new_length = (size_t)length + 4 + payload_length;
-    uint8_t *new_bytes = malloc(new_length);
-    if (!new_bytes) {
-        free(payload);
-        CFRelease(data);
-        return NULL;
-    }
-
-    memcpy(new_bytes, bytes, length);
-    // The tag is two big-endian 16-bit words: the payload length in bytes, then the tag ID
-    new_bytes[length] = (uint8_t)((payload_length >> 8) & 0xFF);
-    new_bytes[length + 1] = (uint8_t)(payload_length & 0xFF);
-    new_bytes[length + 2] = (uint8_t)((kIOHIDPayloadTag >> 8) & 0xFF);
-    new_bytes[length + 3] = (uint8_t)(kIOHIDPayloadTag & 0xFF);
-    memcpy(new_bytes + length + 4, payload, payload_length);
-
-    free(payload);
+    CGEventRef result = CGEventCreateFromData(kCFAllocatorDefault, data);
     CFRelease(data);
-
-    CFDataRef new_data = CFDataCreate(kCFAllocatorDefault, new_bytes, (CFIndex)new_length);
-    free(new_bytes);
-    if (!new_data) {
-        return NULL;
-    }
-
-    CGEventRef result = CGEventCreateFromData(kCFAllocatorDefault, new_data);
-    CFRelease(new_data);
     return result;
 }

@@ -26,8 +26,13 @@ final class GeneralSettingsViewController: NSViewController {
   }()
   private lazy var showOSDCheckbox = NSButton(
     checkboxWithTitle: "Show for", target: self, action: #selector(showOSDChanged))
-  private lazy var osdDurationPopup = popup(
-    titles: durationPresets.map { "\($0)ms" }, action: #selector(osdDurationChanged))
+  private lazy var osdDurationPopup: NSPopUpButton = {
+    let popup = NSPopUpButton()
+    popup.addItems(withTitles: durationPresets.map { "\($0)ms" })
+    popup.target = self
+    popup.action = #selector(osdDurationChanged)
+    return popup
+  }()
   private lazy var showOSDInMissionControlCheckbox = NSButton(
     checkboxWithTitle: "Show in Mission Control", target: self, action: #selector(showOSDInMissionControlChanged))
 
@@ -40,14 +45,6 @@ final class GeneralSettingsViewController: NSViewController {
 
     setupUI()
     loadSettings()
-  }
-
-  private func popup(titles: [String], action: Selector) -> NSPopUpButton {
-    let popup = NSPopUpButton()
-    popup.addItems(withTitles: titles)
-    popup.target = self
-    popup.action = action
-    return popup
   }
 
   private func setupUI() {
@@ -72,7 +69,8 @@ final class GeneralSettingsViewController: NSViewController {
     overlayDetectionCheckbox.state = Settings.overlayDetectionEnabled ? .on : .off
 
     showOSDCheckbox.state = Settings.showOSD ? .on : .off
-    osdDurationPopup.selectItem(at: durationPresets.firstIndex(of: Settings.osdDurationMs) ?? 1)
+    let duration = durationPresets.contains(Settings.osdDurationMs) ? Settings.osdDurationMs : Settings.defaultOSDDurationMs
+    osdDurationPopup.selectItem(at: durationPresets.firstIndex(of: duration) ?? 0)
     updateDependentControls()
   }
 
@@ -112,7 +110,6 @@ final class GeneralSettingsViewController: NSViewController {
   }
 
   @objc private func osdDurationChanged(_ sender: NSPopUpButton) {
-    guard durationPresets.indices.contains(sender.indexOfSelectedItem) else { return }
     Settings.osdDurationMs = durationPresets[sender.indexOfSelectedItem]
   }
 
@@ -132,7 +129,6 @@ final class GeneralSettingsViewController: NSViewController {
         try SMAppService.mainApp.unregister()
       }
     } catch {
-      NSSound.beep()
       Alerts.showWarning(
         "Failed to \(shouldEnable ? "enable" : "disable") launch at login", info: error.localizedDescription)
     }

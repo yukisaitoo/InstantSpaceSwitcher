@@ -9,7 +9,7 @@
 typedef int32_t CGSConnectionID;
 typedef uint64_t CGSSpaceID;
 
-extern CFArrayRef CGSCopyManagedDisplaySpaces(CGSConnectionID connection, CFStringRef display) __attribute__((weak_import));
+extern CFArrayRef CGSCopyManagedDisplaySpaces(CGSConnectionID connection) __attribute__((weak_import));
 extern CGSConnectionID CGSMainConnectionID(void) __attribute__((weak_import));
 extern CGSSpaceID CGSGetActiveSpace(CGSConnectionID connection) __attribute__((weak_import));
 
@@ -49,8 +49,7 @@ typedef CF_ENUM(uint8_t, CGSGesturePhase) {
     kCGSGesturePhaseCancelled = 8,
 };
 
-// Limited subset of motion constants observed in synthetic Dock swipe traces.
-typedef CF_ENUM(uint16_t, CGGestureMotion) {
+enum {
     kCGGestureMotionHorizontal = 1,
 };
 

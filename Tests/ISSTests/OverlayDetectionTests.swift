@@ -1,3 +1,4 @@
+import CoreGraphics
 import ISS
 import XCTest
 
@@ -13,7 +14,7 @@ final class OverlayDetectionTests: XCTestCase {
     let layers =
       Array(repeating: 20, count: layer20) + Array(repeating: 18, count: layer18)
       + Array(repeating: wallpaperLayer, count: wallpaper)
-    return layers.map { ["kCGWindowOwnerName": "Dock", "kCGWindowLayer": NSNumber(value: $0)] }
+    return layers.map { [kCGWindowOwnerName as String: "Dock", kCGWindowLayer as String: NSNumber(value: $0)] }
   }
 
   private func assertDetects(
@@ -56,7 +57,7 @@ final class OverlayDetectionTests: XCTestCase {
 
   func testNonDockWindowsAreIgnored() {
     let windows: [NSDictionary] = [18, 20].map {
-      ["kCGWindowOwnerName": "WindowServer", "kCGWindowLayer": NSNumber(value: $0)]
+      [kCGWindowOwnerName as String: "WindowServer", kCGWindowLayer as String: NSNumber(value: $0)]
     }
     assertDetects(windows, expose: false, missionControl: false)
   }

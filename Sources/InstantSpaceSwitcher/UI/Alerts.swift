@@ -2,12 +2,12 @@ import AppKit
 
 enum Alerts {
   static func showAccessibilityPermissionRequired(to purpose: String) {
-    NSApp.activate(ignoringOtherApps: true)
+    NSApp.activate()
 
     let alert = NSAlert()
     alert.messageText = "Accessibility Permission Required"
     alert.informativeText = """
-      \(Constants.appName) needs Accessibility permissions to \(purpose).
+      \(Constants.appName) needs Accessibility permission to \(purpose).
 
       Please enable it in System Settings > Privacy & Security > Accessibility.
 

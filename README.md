@@ -20,18 +20,26 @@ This is a personal fork of [InstantSpaceSwitcher](https://github.com/jurplel/Ins
 - Jump to "last used desktop space".
 - The menu bar icon and its menu.
 - The command-line tool (`ISSCli`).
+- Shortcuts specific to the right Option key (AltGr).
+- Per-shortcut reset buttons. "Reset All to Defaults" remains.
 
 ## Fixes
 
 - The app no longer resets its own Accessibility permission every launch.
 - Swiping no longer gets stuck if macOS briefly pauses the app mid-swipe.
 - Quickly switching at the first or last desktop space no longer jumps the wrong way.
-- Shortcuts must include ⌘, ⌥ or ⌃ (F1–F12 excepted), so a single key can't take over your keyboard.
-- The shortcut recorder cancels on click, recovers if macOS times it out, and beeps when Accessibility permission is missing.
+- Shortcuts must include ⌘ or ⌃ (F1–F12 excepted), so a single key can't take over your keyboard. macOS no longer allows ⌥-only shortcuts.
+- Shortcuts use macOS's standard hotkey API, so the app no longer sees what you type.
+- The shortcut recorder cancels on click or Esc, and only listens inside the Settings window.
+- "Reset All to Defaults" clears your saved shortcuts instead of copying the defaults over them.
 - Permission alerts now explain what to do when the app shows as allowed but isn't working.
 - Switching no longer goes the wrong way after closing Mission Control; swipes made while it is still closing are ignored.
 - Switching can no longer overshoot into an empty black space past the first or last desktop space.
 - One switch per key press: holding a shortcut switches once, and nothing happens (no beep) at the first or last space.
+
+## A shortcut makes an alert sound
+
+Another app uses the same keys and couldn't do anything with them. For example, Rectangle's Next/Previous Display default to ⌃⌥⌘→ / ⌃⌥⌘←. Clear or change the shortcut in that app.
 
 ## FaceTime call window disappearing (testing)
 
@@ -57,7 +65,7 @@ Clone this repo, then:
 
 ```sh
 ./dist/make-dev-cert.sh   # once: keeps the Accessibility permission across rebuilds
-./dist/build.sh --install # builds, replaces /Applications/InstantSpaceSwitcher.app, relaunches
+./dist/build.sh           # builds, replaces /Applications/InstantSpaceSwitcher.app, relaunches
 ```
 
 ## Switching between the original and this fork
