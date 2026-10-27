@@ -4,7 +4,7 @@ Switch macOS spaces instantly, with no sliding animation.
 
 https://github.com/user-attachments/assets/037422c9-3fb7-41cd-8da7-58d28c4c8eff
 
-This is a personal fork of [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher) by jurplel. It's trimmed down to left/right switching and has bug fixes I didn't want to wait on. Requires macOS 27.
+This is a personal fork of [InstantSpaceSwitcher](https://github.com/jurplel/InstantSpaceSwitcher) by jurplel. It's trimmed down to left/right switching and has updates that I didn't want to wait on. Requires macOS 27.
 
 ## Features
 
@@ -48,7 +48,7 @@ To watch what the app is doing (in zsh, `log` alone is a different built-in comm
 ## Build from source
 
 > [!IMPORTANT]
-> Don't have the original app installed at the same time. Both use the same name and settings and fight over the same shortcuts and swipes.
+> Don't have the fork and the original app installed at the same time. Both use the same name and settings and fight over the same shortcuts and swipes.
 
 Clone this repo, then:
 
