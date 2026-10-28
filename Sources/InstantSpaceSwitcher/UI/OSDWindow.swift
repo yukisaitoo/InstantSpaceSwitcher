@@ -20,6 +20,7 @@ final class OSDWindow {
     window.collectionBehavior = [.canJoinAllSpaces, .stationary]
     window.ignoresMouseEvents = true
     window.hidesOnDeactivate = false
+    window.animationBehavior = .none
 
     let visualEffect = NSVisualEffectView(frame: frame)
     visualEffect.material = .hudWindow
@@ -59,7 +60,10 @@ final class OSDWindow {
       window.setFrameOrigin(NSPoint(x: screenFrame.midX - Self.size / 2, y: screenFrame.midY - Self.size / 2))
     }
 
-    window.alphaValue = 1.0
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = 0
+      window.animator().alphaValue = 1.0
+    }
     window.orderFrontRegardless()
 
     let duration = Double(Settings.osdDurationMs) / 1000.0
