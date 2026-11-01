@@ -3,6 +3,7 @@ import Foundation
 enum Settings {
   enum Key {
     static let swipeOverride = "swipeOverride"
+    static let smoothSwitching = "smoothSwitching"
     static let overlayDetectionEnabled = "overlayDetectionEnabled"
     static let showOSD = "showOSD"
     static let osdDurationMs = "osdDurationMs"
@@ -17,6 +18,11 @@ enum Settings {
   static var swipeOverride: Bool {
     get { defaults.bool(forKey: Key.swipeOverride) }
     set { defaults.set(newValue, forKey: Key.swipeOverride) }
+  }
+
+  static var smoothSwitching: Bool {
+    get { defaults.bool(forKey: Key.smoothSwitching) }
+    set { defaults.set(newValue, forKey: Key.smoothSwitching) }
   }
 
   static var overlayDetectionEnabled: Bool {

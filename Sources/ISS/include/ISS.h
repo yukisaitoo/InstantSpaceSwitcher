@@ -17,9 +17,16 @@ bool iss_switch(ISSDirection direction);
 // Replaces native horizontal Dock swipes with instant switches.
 void iss_set_swipe_override(bool enabled);
 
+// When enabled, switches play a fast Dock slide instead of jumping instantly.
+void iss_set_smooth_switching(bool enabled);
+
 // Called once each switch is confirmed; newSpaceIndex is zero-based. Pass NULL to clear.
 typedef void (*ISSSwitchCallback)(unsigned int newSpaceIndex);
 void iss_set_switch_callback(ISSSwitchCallback callback);
+
+// Called on the main thread just before a switch is posted. Pass NULL to clear.
+typedef void (*ISSSwitchWillPostCallback)(void);
+void iss_set_switch_will_post_callback(ISSSwitchWillPostCallback callback);
 
 // Call from activeSpaceDidChangeNotification to confirm the in-flight switch.
 void iss_space_did_change(void);

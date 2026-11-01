@@ -17,29 +17,31 @@ final class OSDWindow {
     window.isOpaque = false
     window.backgroundColor = .clear
     window.level = .statusBar
-    window.collectionBehavior = [.canJoinAllSpaces, .stationary]
+    // Not on all spaces: each number stays on the space it belongs to instead of
+    // riding along onto the next one until that space's number is shown
+    window.collectionBehavior = [.ignoresCycle]
     window.ignoresMouseEvents = true
     window.hidesOnDeactivate = false
     window.animationBehavior = .none
 
-    let visualEffect = NSVisualEffectView(frame: frame)
-    visualEffect.material = .hudWindow
-    visualEffect.state = .active
-    visualEffect.wantsLayer = true
-    visualEffect.layer?.cornerRadius = 18
-    visualEffect.layer?.masksToBounds = true
+    let background = NSVisualEffectView(frame: frame)
+    background.material = .hudWindow
+    background.state = .active
+    background.wantsLayer = true
+    background.layer?.cornerRadius = 18
+    background.layer?.masksToBounds = true
 
     label = NSTextField(labelWithString: "")
     label.font = NSFont.systemFont(ofSize: 48, weight: .medium)
     label.alignment = .center
     label.translatesAutoresizingMaskIntoConstraints = false
 
-    visualEffect.addSubview(label)
-    window.contentView = visualEffect
+    background.addSubview(label)
+    window.contentView = background
 
     NSLayoutConstraint.activate([
-      label.centerXAnchor.constraint(equalTo: visualEffect.centerXAnchor),
-      label.centerYAnchor.constraint(equalTo: visualEffect.centerYAnchor)
+      label.centerXAnchor.constraint(equalTo: background.centerXAnchor),
+      label.centerYAnchor.constraint(equalTo: background.centerYAnchor)
     ])
   }
 
@@ -60,9 +62,19 @@ final class OSDWindow {
       window.setFrameOrigin(NSPoint(x: screenFrame.midX - Self.size / 2, y: screenFrame.midY - Self.size / 2))
     }
 
+    // Alpha applies in the WindowServer at once, but the label only redraws on the
+    // next display pass, so draw it first or the first frame shows the old number
+    window.contentView?.layoutSubtreeIfNeeded()
+    window.display()
+    CATransaction.flush()
+
     NSAnimationContext.runAnimationGroup { context in
       context.duration = 0
       window.animator().alphaValue = 1.0
+    }
+    if !window.isOnActiveSpace {
+      // Still on the previous space; ordering in again puts it on this one
+      window.orderOut(nil)
     }
     window.orderFrontRegardless()
 
@@ -70,6 +82,20 @@ final class OSDWindow {
     hideTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
       self?.hide()
     }
+  }
+
+  // Smooth: the old number stays on its space and slides away with it. Instant
+  // has no slide, and the old number flickers by on the way, so remove it first.
+  func switchWillStart() {
+    guard !Settings.smoothSwitching else { return }
+    hideTimer?.invalidate()
+    hideTimer = nil
+    // Through the animator so it also cancels a fade in progress
+    NSAnimationContext.runAnimationGroup { context in
+      context.duration = 0
+      window.animator().alphaValue = 0.0
+    }
+    window.orderOut(nil)
   }
 
   private func hide() {

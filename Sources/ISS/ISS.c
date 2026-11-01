@@ -34,6 +34,7 @@ static const CFTimeInterval kStaleSwipeTimeout = 1.0;
 static CFAbsoluteTime lastSwipeEventTime = 0;
 
 static ISSSwitchCallback switchCallback = NULL;
+static ISSSwitchWillPostCallback switchWillPostCallback = NULL;
 
 // A switch is confirmed by a space-change notification ~50ms after we post it,
 // and only then does CGS report the new space. Switching again before that
@@ -41,7 +42,8 @@ static ISSSwitchCallback switchCallback = NULL;
 // which on macOS 27 shows a black space until the Dock bounces back. So only
 // one switch is in flight; one still unconfirmed after kPendingSwitchTimeout is
 // assumed dropped by the Dock.
-static const CFTimeInterval kPendingSwitchTimeout = 0.5;
+// Smooth mode at velocity 15 confirms ~410ms after posting, so leave room above that.
+static const CFTimeInterval kPendingSwitchTimeout = 1.0;
 static CFAbsoluteTime pendingSwitchTime = 0; // 0 when no switch is in flight
 
 static bool cgs_symbols_available(void) {
@@ -243,6 +245,15 @@ static const double kMinimalSwipeProgress = 0.000016;
 // The fling on the ended phase is what commits the switch on macOS 27. The payload
 // field is 16.16 fixed point, so it must stay under 32767.
 static const double kFlingVelocity = 9999.0;
+static const double kMaxFlingVelocity = 32767.0;
+
+// Smooth mode lets the Dock play its slide, sped up by a lower fling. A real
+// animation never loses FaceTime's call window, so it needs no home-space
+// handling. On macOS 27, 15 is the first value that reads as a slide; the
+// original app's 40-80 presets look nearly instant. Overridable with
+// `defaults write <bundle id> smoothFlingVelocity N`; lower is a slower slide.
+static const double kSmoothFlingVelocity = 15.0;
+static bool smoothSwitching = false;
 
 // A window that shows on every space (FaceTime's call window) still belongs to
 // the space it was created on. Landing on that home space with minimal progress
@@ -398,7 +409,7 @@ static CGEventRef create_dock_swipe_event(CGSGesturePhase phase) {
     return event;
 }
 
-static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction, double progress) {
+static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction, double progress, double velocity) {
     const double sign = swipe_sign(direction);
 
     CGEventRef event = create_dock_swipe_event(phase);
@@ -415,7 +426,7 @@ static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction, doubl
     CGEventSetIntegerValueField(event, kCGEventSourceUserData, kSyntheticEventTag);
     // Match FasterSwiper: only the Ended event carries velocity.
     if (phase == kCGSGesturePhaseEnded) {
-        CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityX, sign * kFlingVelocity);
+        CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityX, sign * velocity);
     }
 
     CGEventRef augmented = iss_create_augmented_dock_swipe_event(event);
@@ -443,11 +454,11 @@ static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction, doubl
 // `progress` applies to Changed and Ended. All phases go out back to back:
 // holding Ended back (tried 16-33ms with progress 0.01-0.05) made FaceTime's
 // call window flicker continuously.
-static bool perform_switch_gesture(ISSDirection direction, double progress) {
+static bool perform_switch_gesture(ISSDirection direction, double progress, double velocity) {
     // All three phases are needed; with only two, Mission Control doesn't work.
-    return post_dock_swipe(kCGSGesturePhaseBegan,   direction, kMinimalSwipeProgress)
-        && post_dock_swipe(kCGSGesturePhaseChanged, direction, progress)
-        && post_dock_swipe(kCGSGesturePhaseEnded,   direction, progress);
+    return post_dock_swipe(kCGSGesturePhaseBegan,   direction, kMinimalSwipeProgress, velocity)
+        && post_dock_swipe(kCGSGesturePhaseChanged, direction, progress, velocity)
+        && post_dock_swipe(kCGSGesturePhaseEnded,   direction, progress, velocity);
 }
 
 static bool is_at_edge(const ISSSpaceInfo *info, ISSDirection direction) {
@@ -480,15 +491,27 @@ bool iss_switch(ISSDirection direction) {
 
     unsigned int target = direction == ISSDirectionLeft ? info.currentIndex - 1 : info.currentIndex + 1;
     CGSSpaceID targetSpace = direction == ISSDirectionLeft ? info.leftSpace : info.rightSpace;
-    CGWindowID floatingWindow = floating_window_with_home(targetSpace, info.currentSpace);
     double progress = kMinimalSwipeProgress;
-    if (floatingWindow) {
+    double velocity = kFlingVelocity;
+    CGWindowID floatingWindow = 0;
+    if (smoothSwitching) {
         CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication);
-        progress = positive_pref(CFSTR("floatingWindowProgress"), kFloatingWindowProgress, 1.0);
+        velocity = positive_pref(CFSTR("smoothFlingVelocity"), kSmoothFlingVelocity, kMaxFlingVelocity);
+    } else {
+        floatingWindow = floating_window_with_home(targetSpace, info.currentSpace);
+        if (floatingWindow) {
+            CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication);
+            progress = positive_pref(CFSTR("floatingWindowProgress"), kFloatingWindowProgress, 1.0);
+        }
     }
-    os_log_debug(swipeLog, "switch %{public}s: cgs=%u target=%u count=%u progress=%f floatingWindow=%u",
-                 name, info.currentIndex, target, info.spaceCount, progress, floatingWindow);
-    if (!perform_switch_gesture(direction, progress)) {
+    os_log_debug(swipeLog, "switch %{public}s: mode=%{public}s cgs=%u target=%u count=%u velocity=%.0f "
+                 "progress=%f floatingWindow=%u",
+                 name, smoothSwitching ? "smooth" : "instant", info.currentIndex, target, info.spaceCount,
+                 velocity, progress, floatingWindow);
+    if (switchWillPostCallback) {
+        switchWillPostCallback();
+    }
+    if (!perform_switch_gesture(direction, progress, velocity)) {
         os_log_error(swipeLog, "switch %{public}s: posting the swipe failed", name);
         return false;
     }
@@ -647,6 +670,10 @@ void iss_set_swipe_override(bool enabled) {
     }
 }
 
+void iss_set_smooth_switching(bool enabled) {
+    smoothSwitching = enabled;
+}
+
 void iss_set_overlay_detection_enabled(bool enabled) {
     overlayDetectionEnabled = enabled;
 }
@@ -666,4 +693,8 @@ void iss_space_did_change(void) {
 
 void iss_set_switch_callback(ISSSwitchCallback callback) {
     switchCallback = callback;
+}
+
+void iss_set_switch_will_post_callback(ISSSwitchWillPostCallback callback) {
+    switchWillPostCallback = callback;
 }

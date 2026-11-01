@@ -10,6 +10,7 @@ This is a personal fork of [InstantSpaceSwitcher](https://github.com/jurplel/Ins
 
 - **Keyboard shortcuts**: switch one space left or right. Default binding is ⌃⌥⌘← / ⌃⌥⌘→ (I personally remapped to ⌃← / ⌃→).
 - **Trackpad swipe override**: swipes between spaces become instant.
+- **Switching modes**: Instant (default) jumps with no animation. Smooth plays a faster version of macOS's slide, which also avoids the slight flicker Instant has on FaceTime call spaces.
 - **On-screen display**: a space number briefly appears when you switch.
 - **Launch at login**
 - Doesn't require disabling System Integrity Protection.
@@ -39,6 +40,18 @@ A window that shows on every space, like FaceTime's call window, still belongs t
 ```sh
 defaults write com.interversehq.InstantSpaceSwitcher floatingWindowProgress -float 0.1   # try a value
 defaults delete com.interversehq.InstantSpaceSwitcher floatingWindowProgress             # back to the default (0.25)
+```
+
+</details>
+
+<details>
+<summary>Tuning the Smooth switching speed</summary>
+
+Smooth mode's slide speed is set by its fling velocity (default 15). Lower is a slower slide, higher is closer to instant; around 10–30 is the useful range, and 40 or more looks nearly instant. Changes apply on the next switch, no relaunch needed.
+
+```sh
+defaults write com.interversehq.InstantSpaceSwitcher smoothFlingVelocity -float 20   # try a value
+defaults delete com.interversehq.InstantSpaceSwitcher smoothFlingVelocity            # back to the default (15)
 ```
 
 </details>

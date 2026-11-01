@@ -6,6 +6,7 @@ struct GeneralSettingsView: View {
   private static let durationPresets = [100, 200, 300, 500, 750, 1000]
 
   @AppStorage(Settings.Key.swipeOverride) private var swipeOverride = false
+  @AppStorage(Settings.Key.smoothSwitching) private var smoothSwitching = false
   @AppStorage(Settings.Key.overlayDetectionEnabled) private var overlayDetection = Settings.defaultOverlayDetectionEnabled
   @AppStorage(Settings.Key.showOSD) private var showOSD = false
   @AppStorage(Settings.Key.osdDurationMs) private var osdDurationMs = Settings.defaultOSDDurationMs
@@ -19,6 +20,10 @@ struct GeneralSettingsView: View {
       Section("System") {
         Toggle("Launch at login", isOn: Binding(get: { launchAtLogin }, set: setLaunchAtLogin))
         Toggle("Override swipe gesture", isOn: $swipeOverride)
+        Picker("Switch speed", selection: $smoothSwitching) {
+          Text("Instant").tag(false)
+          Text("Smooth").tag(true)
+        }
         Toggle(isOn: $overlayDetection) {
           Text("Enable Mission Control/Exposé detection")
           Text("Experimental—may be flaky")
@@ -44,6 +49,7 @@ struct GeneralSettingsView: View {
     .frame(width: 500)
     .fixedSize(horizontal: false, vertical: true)
     .onChange(of: swipeOverride) { _, enabled in iss_set_swipe_override(enabled) }
+    .onChange(of: smoothSwitching) { _, enabled in iss_set_smooth_switching(enabled) }
     .onChange(of: overlayDetection) { _, enabled in iss_set_overlay_detection_enabled(enabled) }
     // Login items can change in System Settings while this view stays loaded
     .onAppear(perform: refreshLaunchAtLogin)

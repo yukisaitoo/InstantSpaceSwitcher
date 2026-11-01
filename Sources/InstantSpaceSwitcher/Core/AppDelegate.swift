@@ -23,10 +23,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     if Settings.swipeOverride {
       iss_set_swipe_override(true)
     }
+    if Settings.smoothSwitching {
+      iss_set_smooth_switching(true)
+    }
     if Settings.overlayDetectionEnabled {
       iss_set_overlay_detection_enabled(true)
     }
 
+    // Runs on the main thread before the switch is posted
+    iss_set_switch_will_post_callback {
+      OSDWindow.shared.switchWillStart()
+    }
     iss_set_switch_callback { newSpaceIndex in
       DispatchQueue.main.async {
         OSDWindow.shared.show(message: "\(Int(newSpaceIndex) + 1)")
