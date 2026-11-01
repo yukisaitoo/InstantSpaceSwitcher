@@ -12,6 +12,11 @@ typedef uint64_t CGSSpaceID;
 extern CFArrayRef CGSCopyManagedDisplaySpaces(CGSConnectionID connection) __attribute__((weak_import));
 extern CGSConnectionID CGSMainConnectionID(void) __attribute__((weak_import));
 extern CGSSpaceID CGSGetActiveSpace(CGSConnectionID connection) __attribute__((weak_import));
+extern CFArrayRef CGSCopySpacesForWindows(CGSConnectionID connection, int mask, CFArrayRef windowIDs) __attribute__((weak_import));
+
+enum {
+    kCGSAllSpacesMask = 7,
+};
 
 enum {
     kCGSEventTypeField = 55,

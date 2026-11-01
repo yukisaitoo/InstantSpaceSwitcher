@@ -29,21 +29,19 @@ This is a personal fork of [InstantSpaceSwitcher](https://github.com/jurplel/Ins
 - Swiping no longer needs to read key inputs for some odd reason.
 - Switching no longer overshoots during Mission Control close animation.
 - Switching no longer overshoot into an empty black space past the first or last space.
+- FaceTime's call window no longer disappears when you switch to the space where you answered the call.
 
-## FaceTime call window disappearing (testing WIP)
+<details>
+<summary>Tuning the FaceTime call window fix</summary>
 
-Switching to the first space can leave behind FaceTime's floating call window until an animation brings it back. The switch speed into the first space is tunable while this is being tested.
-
-```sh
-defaults write com.interversehq.InstantSpaceSwitcher firstSpaceFlingVelocity -float 500   # try 2000, 500, 160, 50
-defaults delete com.interversehq.InstantSpaceSwitcher firstSpaceFlingVelocity            # back to the default (9999)
-```
-
-To watch what the app is doing (in zsh, `log` alone is a different built-in command):
+A window that shows on every space, like FaceTime's call window, still belongs to the space it was opened on. An instant switch into that space can leave the window hidden, so those switches carry a little real swipe movement (default 0.25). You may see a slight flicker on those switches only; every other switch is unchanged. Values from 0.1 to 1.0 have worked. Lower flickers less. Changes apply on the next switch, no relaunch needed.
 
 ```sh
-/usr/bin/log stream --level debug --predicate 'subsystem == "com.interversehq.InstantSpaceSwitcher"'
+defaults write com.interversehq.InstantSpaceSwitcher floatingWindowProgress -float 0.1   # try a value
+defaults delete com.interversehq.InstantSpaceSwitcher floatingWindowProgress             # back to the default (0.25)
 ```
+
+</details>
 
 ## Build from source
 
@@ -55,6 +53,14 @@ Clone this repo, then:
 ```sh
 ./dist/make-dev-cert.sh   # once: keeps the Accessibility permission across rebuilds
 ./dist/build.sh           # builds, replaces /Applications/InstantSpaceSwitcher.app, relaunches
+```
+
+## Debugging
+
+To watch what the app is doing (in zsh, `log` alone is a different built-in command):
+
+```sh
+/usr/bin/log stream --level debug --predicate 'subsystem == "com.interversehq.InstantSpaceSwitcher"'
 ```
 
 ## Switching between the original and this fork

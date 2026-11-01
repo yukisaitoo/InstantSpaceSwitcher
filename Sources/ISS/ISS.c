@@ -4,12 +4,16 @@
 
 #include <mach/mach_time.h>
 #include <os/log.h>
+#include <stdlib.h>
 #include <string.h>
 
 // The space state of the display under the cursor
 typedef struct {
     unsigned int currentIndex;
     unsigned int spaceCount;
+    CGSSpaceID currentSpace;
+    CGSSpaceID leftSpace;  // 0 at the first space
+    CGSSpaceID rightSpace; // 0 at the last space
 } ISSSpaceInfo;
 
 static os_log_t swipeLog = NULL;
@@ -72,6 +76,7 @@ static bool extract_space_info_from_display(CFDictionaryRef displayDict,
 
     unsigned int spaceCount = 0;
     bool foundActive = false;
+    CGSSpaceID previousSpace = 0;
     for (CFIndex i = 0; i < CFArrayGetCount(spaces); i++) {
         CGSSpaceID spaceID = 0;
         if (!get_space_id(CFArrayGetValueAtIndex(spaces, i), &spaceID)) {
@@ -79,8 +84,13 @@ static bool extract_space_info_from_display(CFDictionaryRef displayDict,
         }
         if (!foundActive && spaceID == activeSpace) {
             outInfo->currentIndex = spaceCount;
+            outInfo->currentSpace = spaceID;
+            outInfo->leftSpace = previousSpace;
             foundActive = true;
+        } else if (foundActive && outInfo->rightSpace == 0) {
+            outInfo->rightSpace = spaceID;
         }
+        previousSpace = spaceID;
         spaceCount++;
     }
 
@@ -231,27 +241,118 @@ bool iss_is_mission_control_active(void) {
 static const double kMinimalSwipeProgress = 0.000016;
 
 // The fling on the ended phase is what commits the switch on macOS 27. The payload
-// field is 16.16 fixed point, which caps it at kMaxFlingVelocity.
+// field is 16.16 fixed point, so it must stay under 32767.
 static const double kFlingVelocity = 9999.0;
-static const double kMaxFlingVelocity = 32767.0;
 
-// Landing on the first space at full fling makes the Dock rubber-band, which
-// leaves canJoinAllSpaces windows (FaceTime's call window) hidden until the next
-// transition. Temporarily tunable with `defaults write <bundle id> firstSpaceFlingVelocity N`.
-static double first_space_fling_velocity(void) {
-    CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication);
-    CFNumberRef value = CFPreferencesCopyAppValue(CFSTR("firstSpaceFlingVelocity"), kCFPreferencesCurrentApplication);
-    double velocity = kFlingVelocity;
+// A window that shows on every space (FaceTime's call window) still belongs to
+// the space it was created on. Landing on that home space with minimal progress
+// leaves it hidden until the next transition, likely because the space's
+// surfaces are built as progress advances. Real progress on Changed/Ended fixes
+// it at full velocity but flickers slightly, so it's only used for those
+// landings. Tested working from 0.1 to 1.0; less progress flickers less. A
+// slower fling also worked, but its safe cutoff drifted (166, later 120).
+// Overridable with `defaults write <bundle id> floatingWindowProgress N` (0 < N <= 1),
+// read on every such switch so changes apply without a relaunch.
+static const double kFloatingWindowProgress = 0.25;
+
+// Returns the app preference if it's a positive number, clamped to max, else fallback
+static double positive_pref(CFStringRef key, double fallback, double max) {
+    CFPropertyListRef value = CFPreferencesCopyAppValue(key, kCFPreferencesCurrentApplication);
+    double result = fallback;
     if (value) {
         double configured = 0;
-        // Zero or negative never commits a switch; above the max overflows the payload
         if (CFGetTypeID(value) == CFNumberGetTypeID() &&
             CFNumberGetValue(value, kCFNumberDoubleType, &configured) && configured > 0) {
-            velocity = configured < kMaxFlingVelocity ? configured : kMaxFlingVelocity;
+            result = configured < max ? configured : max;
         }
         CFRelease(value);
     }
-    return velocity;
+    return result;
+}
+
+static bool window_spaces_contain(CFArrayRef spaces, CGSSpaceID space) {
+    for (CFIndex i = 0; i < CFArrayGetCount(spaces); i++) {
+        CFNumberRef number = CFArrayGetValueAtIndex(spaces, i);
+        CGSSpaceID value = 0;
+        if (number && CFGetTypeID(number) == CFNumberGetTypeID() &&
+            CFNumberGetValue(number, kCFNumberSInt64Type, &value) && value == space) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool dict_double(CFDictionaryRef dict, CFStringRef key, double *out) {
+    CFNumberRef number = dict ? CFDictionaryGetValue(dict, key) : NULL;
+    return number && CFGetTypeID(number) == CFNumberGetTypeID() &&
+           CFNumberGetValue(number, kCFNumberDoubleType, out);
+}
+
+// Visible, normal-layer windows. Menu bar and system overlay layers, invisible
+// helpers and tiny windows can't be a call window and shouldn't slow switches.
+static bool is_floating_window_candidate(CFDictionaryRef info) {
+    double layer = 0, alpha = 0;
+    CGRect bounds;
+    CFDictionaryRef boundsDict = CFDictionaryGetValue(info, kCGWindowBounds);
+    return dict_double(info, kCGWindowLayer, &layer) && layer < kCGMainMenuWindowLevel &&
+           dict_double(info, kCGWindowAlpha, &alpha) && alpha > 0 &&
+           boundsDict && CGRectMakeWithDictionaryRepresentation(boundsDict, &bounds) &&
+           bounds.size.width >= 50 && bounds.size.height >= 50;
+}
+
+static CFArrayRef copy_spaces_for_windows(CGSConnectionID connection, const void **ids, CFIndex count) {
+    CFArrayRef idArray = CFArrayCreate(NULL, ids, count, &kCFTypeArrayCallBacks);
+    if (!idArray) {
+        return NULL;
+    }
+    CFArrayRef spaces = CGSCopySpacesForWindows(connection, kCGSAllSpacesMask, idArray);
+    CFRelease(idArray);
+    return spaces;
+}
+
+// Returns an on-screen window whose home is `target` but that isn't listed on
+// `current` (so it shows on every space), or 0.
+static CGWindowID floating_window_with_home(CGSSpaceID target, CGSSpaceID current) {
+    if (&CGSCopySpacesForWindows == NULL || target == 0) {
+        return 0;
+    }
+    CFArrayRef windows = CGWindowListCopyWindowInfo(
+        kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID);
+    if (!windows) {
+        return 0;
+    }
+    CFIndex windowCount = CFArrayGetCount(windows);
+    const void **ids = calloc((size_t)(windowCount > 0 ? windowCount : 1), sizeof(void *));
+    CFIndex idCount = 0;
+    for (CFIndex i = 0; ids && i < windowCount; i++) {
+        CFDictionaryRef info = CFArrayGetValueAtIndex(windows, i);
+        CFNumberRef idNumber = CFDictionaryGetValue(info, kCGWindowNumber);
+        if (idNumber && is_floating_window_candidate(info)) {
+            ids[idCount++] = idNumber;
+        }
+    }
+
+    CGSConnectionID connection = CGSMainConnectionID();
+    CGWindowID found = 0;
+    // One call for all candidates; per-window lookups only if one of them lives on the target
+    CFArrayRef allSpaces = idCount > 0 ? copy_spaces_for_windows(connection, ids, idCount) : NULL;
+    bool targetHasCandidate = allSpaces && window_spaces_contain(allSpaces, target);
+    if (allSpaces) {
+        CFRelease(allSpaces);
+    }
+    for (CFIndex i = 0; targetHasCandidate && i < idCount && found == 0; i++) {
+        CFArrayRef spaces = copy_spaces_for_windows(connection, &ids[i], 1);
+        if (!spaces) {
+            continue;
+        }
+        if (window_spaces_contain(spaces, target) && !window_spaces_contain(spaces, current)) {
+            CFNumberGetValue(ids[i], kCFNumberSInt32Type, &found);
+        }
+        CFRelease(spaces);
+    }
+    free(ids);
+    CFRelease(windows);
+    return found;
 }
 
 // Cached natural scrolling preference; -1 means re-read it
@@ -297,14 +398,14 @@ static CGEventRef create_dock_swipe_event(CGSGesturePhase phase) {
     return event;
 }
 
-static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction, double velocity) {
+static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction, double progress) {
     const double sign = swipe_sign(direction);
 
     CGEventRef event = create_dock_swipe_event(phase);
     if (!event) {
         return false;
     }
-    CGEventSetDoubleValueField(event, kCGEventGestureSwipeProgress, sign * kMinimalSwipeProgress);
+    CGEventSetDoubleValueField(event, kCGEventGestureSwipeProgress, sign * progress);
     // Fields a real trackpad swipe carries (from FasterSwiper's traces).
     CGEventSetIntegerValueField(event, kCGEventGesturePhaseAlias, phase);
     CGEventSetDoubleValueField(event, kCGEventGestureZoomDeltaY, 3.0);
@@ -314,7 +415,7 @@ static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction, doubl
     CGEventSetIntegerValueField(event, kCGEventSourceUserData, kSyntheticEventTag);
     // Match FasterSwiper: only the Ended event carries velocity.
     if (phase == kCGSGesturePhaseEnded) {
-        CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityX, sign * velocity);
+        CGEventSetDoubleValueField(event, kCGEventGestureSwipeVelocityX, sign * kFlingVelocity);
     }
 
     CGEventRef augmented = iss_create_augmented_dock_swipe_event(event);
@@ -338,11 +439,15 @@ static bool post_dock_swipe(CGSGesturePhase phase, ISSDirection direction, doubl
     return true;
 }
 
-static bool perform_switch_gesture(ISSDirection direction, double velocity) {
+// Began always carries minimal progress so no intermediate frame is drawn;
+// `progress` applies to Changed and Ended. All phases go out back to back:
+// holding Ended back (tried 16-33ms with progress 0.01-0.05) made FaceTime's
+// call window flicker continuously.
+static bool perform_switch_gesture(ISSDirection direction, double progress) {
     // All three phases are needed; with only two, Mission Control doesn't work.
-    return post_dock_swipe(kCGSGesturePhaseBegan,   direction, velocity)
-        && post_dock_swipe(kCGSGesturePhaseChanged, direction, velocity)
-        && post_dock_swipe(kCGSGesturePhaseEnded,   direction, velocity);
+    return post_dock_swipe(kCGSGesturePhaseBegan,   direction, kMinimalSwipeProgress)
+        && post_dock_swipe(kCGSGesturePhaseChanged, direction, progress)
+        && post_dock_swipe(kCGSGesturePhaseEnded,   direction, progress);
 }
 
 static bool is_at_edge(const ISSSpaceInfo *info, ISSDirection direction) {
@@ -374,10 +479,16 @@ bool iss_switch(ISSDirection direction) {
     }
 
     unsigned int target = direction == ISSDirectionLeft ? info.currentIndex - 1 : info.currentIndex + 1;
-    double velocity = target == 0 ? first_space_fling_velocity() : kFlingVelocity;
-    os_log_debug(swipeLog, "switch %{public}s: cgs=%u target=%u count=%u velocity=%.0f",
-                 name, info.currentIndex, target, info.spaceCount, velocity);
-    if (!perform_switch_gesture(direction, velocity)) {
+    CGSSpaceID targetSpace = direction == ISSDirectionLeft ? info.leftSpace : info.rightSpace;
+    CGWindowID floatingWindow = floating_window_with_home(targetSpace, info.currentSpace);
+    double progress = kMinimalSwipeProgress;
+    if (floatingWindow) {
+        CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication);
+        progress = positive_pref(CFSTR("floatingWindowProgress"), kFloatingWindowProgress, 1.0);
+    }
+    os_log_debug(swipeLog, "switch %{public}s: cgs=%u target=%u count=%u progress=%f floatingWindow=%u",
+                 name, info.currentIndex, target, info.spaceCount, progress, floatingWindow);
+    if (!perform_switch_gesture(direction, progress)) {
         os_log_error(swipeLog, "switch %{public}s: posting the swipe failed", name);
         return false;
     }
